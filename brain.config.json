@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "roots": [],
+  "extensions": [
+    ".md", ".markdown", ".txt", ".text",
+    ".docx", ".pptx", ".xlsx",
+    ".pdf", ".html", ".htm"
+  ],
+  "excludes": [
+    "**/~$*",
+    "**/*.tmp",
+    "**/.git/**",
+    "**/.svn/**",
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/.dsh-backup/**",
+    "**/.trash/**",
+    "**/$RECYCLE.BIN/**",
+    "**/System Volume Information/**"
+  ],
+  "chunk": {
+    "target_chars": 900,
+    "max_chars": 1600
+  },
+  "search": {
+    "default_limit": 20,
+    "max_chunks_per_doc": 3,
+    "token_budget": 2500,
+    "snippet_chars": 240
+  },
+  "paths": {}
+}

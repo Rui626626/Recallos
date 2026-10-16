@@ -1,0 +1,33 @@
+# 换行符策略 —— 这不是洁癖，是**功能性**的。
+#
+# 背景：git 在 Windows 上默认 core.autocrlf=true，检出时会把 LF 换成 CRLF。
+# 对 `install.sh` 来说那是致命的：`#!/bin/sh` 脚本里出现 CR，`/bin/sh` 会报
+# `'\r': not found` 然后拒绝执行。本地测试（tests/test_p5.py）查的是工作区里的
+# 文件，**抓不到这个问题** —— 它只在别人 clone 出来的那一刻才暴露。
+#
+# 所以这里必须显式声明。
+
+# 默认：自动识别文本，仓库里统一存 LF。
+* text=auto
+
+# 任何 shell 脚本永远保持 LF，无论谁在什么平台上检出。
+*.sh      text eol=lf
+*.bash    text eol=lf
+
+# Windows 脚本保持 CRLF（cmd.exe 对 LF 的批处理容错很差）。
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+
+# PowerShell 脚本保持 CRLF。注意换行转换不影响文件开头的 UTF-8 BOM，
+# 而 install.ps1 依赖那个 BOM（PowerShell 5.1 无 BOM 时按 ANSI 解码）。
+*.ps1     text eol=crlf
+
+# 二进制文件：一个字节都不要动。
+*.gz      binary
+*.zip     binary
+*.whl     binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.db      binary
+*.pyc     binary
