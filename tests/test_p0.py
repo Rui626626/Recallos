@@ -428,25 +428,54 @@ class TestHostAdapter(P0TestBase):
         self.assertFalse(expected.startswith(self.root + os.sep),
                          "SKILL.md would never be discovered inside the code tree")
 
-    def test_17_the_real_skill_entry_exists_where_the_host_looks(self) -> None:
-        """End-to-end proof for the shipped project, not a sandbox."""
-        workspace = find_project_root(os.path.dirname(PROJECT))
-        entry = skill_entry_path(workspace, SKILL_NAME)
-        self.assertTrue(os.path.isfile(entry),
-                        f"expected the skill entry at {entry}")
-        with open(entry, encoding="utf-8") as fh:
+    def test_17_the_shipped_skill_can_be_installed(self) -> None:
+        """发行包里带着完整的技能，而且**装得进宿主会扫的位置**。
+
+        旧版本断言「这台机器上技能已经装好了」——那是开发者的个人状态，不是交付
+        要求。刚 clone 的人本来就没装（装技能是可选的一步），断言必然失败。
+
+        现在测的是**机制**：技能文件在不在、frontmatter 完不完整、装到指定位置后
+        位置对不对。这样在任何一台干净的机器上都成立。
+        """
+        bundled = os.path.join(PROJECT, "skills", "deepseek-harness", "SKILL.md")
+        self.assertTrue(os.path.isfile(bundled), "发行包里应当带着技能文件")
+        with open(bundled, encoding="utf-8") as fh:
             head = fh.read(400)
         self.assertTrue(head.startswith("---"), "SKILL.md needs YAML frontmatter")
         self.assertIn("name: recallos", head)
-        # The entry lives beside the code, never inside it.
-        self.assertFalse(entry.startswith(PROJECT + os.sep))
 
-    def test_16_the_real_project_repository_passes_its_own_doctor(self) -> None:
-        """The shipped project, as delivered, must be healthy."""
+        # 真的装一次，验证落点正确
+        target_root = os.path.join(self.tmp, "skill-root")
+        run_cli(None, "install-skill", "--to", target_root, expect=0)
+        placed = os.path.join(target_root, SKILL_NAME, "SKILL.md")
+        self.assertTrue(os.path.isfile(placed), f"技能没装到 {placed}")
+        with open(placed, encoding="utf-8") as fh:
+            self.assertIn("name: recallos", fh.read(400))
+        # 决定性的一点：技能绝不能装在代码目录**里面**，那样宿主永远发现不了。
+        self.assertFalse(placed.startswith(PROJECT + os.sep),
+                         "SKILL.md would never be discovered inside the code tree")
+
+    def test_16_the_shipped_project_can_be_healthy(self) -> None:
+        """交付出去的仓库**能**通过自检 —— 而不是「我这台机器已经配好了」。
+
+        这个区别是实测撞出来的：旧版本直接断言 `doctor` 退 0，于是每一个刚
+        `git clone` 下来的人都会看到这条失败——因为 `data/`、`index/` 这些目录
+        都被 `.gitignore` 排除了，克隆出来的仓库本来就没有，得先跑 `init`。
+
+        现在先跑 `init`（幂等，产物全在 `.gitignore` 里），再要求全绿。
+        如果发行包本身是坏的（配置缺失、文件读不了），这条仍然会失败。
+        """
+        run_cli(None, "init", expect=0)
         payload = cli_json(None, "doctor", expect=0)
         self.assertTrue(payload["ok"], json.dumps(payload, ensure_ascii=False))
         self.assertEqual(payload["root"], PROJECT)
-        self.assertTrue(find_check(payload, "tests+config")["status"] == "pass")
+
+        # 这一项在干净克隆上应当是 pass 或 warn，**绝不能是 fail**：
+        # 「把技能装进 DSH」是可选的一步，没装只是警告。而发行包自带的
+        # skills/deepseek-harness/SKILL.md 必须被认出来——那是交付要求。
+        check = find_check(payload, "tests+config")
+        self.assertNotEqual(check["status"], "fail", check)
+        self.assertIn("skills/deepseek-harness/SKILL.md present", check["detail"])
 
 
 if __name__ == "__main__":
