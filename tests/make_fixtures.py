@@ -183,13 +183,34 @@ def write_pdf(path: str, text: str = PDF_TEXT) -> str:
     return _write_bytes(path, bytes(out))
 
 
+def _pdf_backend() -> str | None:
+    """Which PDF backend is usable right now, or None.
+
+    `pypdf` / `PyMuPDF` are **optional** — the tool promises to run without them
+    and merely record the format as unparseable. So the fixture builder must not
+    hand the importer a PDF it cannot read: doing that makes `add` exit non-zero
+    in a perfectly healthy environment, and a dozen unrelated tests then fail
+    with "exited 1 (expected 0)" — which points at the wrong thing entirely.
+    """
+    try:
+        from brain.ingest.pdf import pdf_backend
+        return pdf_backend()
+    except Exception:
+        return None
+
+
 def build(root: str) -> dict:
     """Create the fixture tree under `root`; return name → path.
 
     The corrupt package lives in its own directory so that importing the *good*
     fixtures is expected to exit 0, and only a run that deliberately includes
     the broken directory exits non-zero.
+
+    A format whose optional backend is missing is **not created**, and its key is
+    listed in `skipped_optional` so the matching assertion can skip instead of
+    failing on an environment it does not control.
     """
+    skipped: list[str] = []
     files = {
         "lecture01": _write(os.path.join(root, "materials", "lecture01.md"), LECTURE_01),
         "lecture02": _write(os.path.join(root, "materials", "lecture02.md"), LECTURE_02),
@@ -198,13 +219,19 @@ def build(root: str) -> dict:
                             NOTES_GBK, encoding="gb18030"),
         "docx": write_docx(os.path.join(root, "materials", "report.docx")),
         "pptx": write_pptx(os.path.join(root, "materials", "deck.pptx")),
-        "pdf": write_pdf(os.path.join(root, "materials", "paper.pdf")),
         "empty": _write(os.path.join(root, "materials", "empty.md"), ""),
         "unsupported": _write(os.path.join(root, "materials", "unsupported.xyz"), "x"),
         # Byte-identical to lecture01 → must be detected as a duplicate.
         "lecture01_copy": _write(os.path.join(root, "archive", "lecture01-copy.md"),
                                  LECTURE_01),
     }
+    # DOCX / PPTX are read with the standard library alone, so they are always
+    # safe to create. PDF is not.
+    if _pdf_backend():
+        files["pdf"] = write_pdf(os.path.join(root, "materials", "paper.pdf"))
+    else:
+        skipped.append("pdf")
+
     broken = os.path.join(root, "broken", "broken.docx")
     _write_bytes(broken, b"PK\x03\x04this is not a real zip archive at all")
     files["broken"] = broken
@@ -212,6 +239,7 @@ def build(root: str) -> dict:
     files["archive_dir"] = os.path.join(root, "archive")
     files["broken_dir"] = os.path.join(root, "broken")
     files["root"] = root
+    files["skipped_optional"] = skipped
     # `good_dirs` is what an import that is expected to exit 0 should be given.
     files["good_dirs"] = [files["materials_dir"], files["archive_dir"]]
     return files

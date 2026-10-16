@@ -164,15 +164,27 @@ class P1Base(unittest.TestCase):
 
 class TestFormatsAndIdempotence(P1Base):
 
-    def test_01_five_formats_import(self) -> None:
-        """Markdown / txt / docx / pptx / pdf each produce searchable chunks."""
+    def test_01_every_available_format_imports(self) -> None:
+        """markdown / txt / docx / pptx（以及装了后端时的 pdf）各自产出可检索切片。
+
+        PDF 是**可选**的：没装 pypdf/PyMuPDF 时工具承诺的是「记录为解析失败并说明
+        原因」，而不是正常解析。所以这里按实际可用的后端断言，而不是硬要求五格式
+        齐全——后者会让一个健康的无依赖环境判为失败。
+        """
         self.import_good()
 
         extractors = {r["extractor"] for r in self.rows(
             "SELECT DISTINCT extractor FROM doc WHERE status='indexed'")}
         for expected in ("markdown", "text", "docx", "pptx"):
             self.assertIn(expected, extractors)
-        self.assertTrue(any(e.startswith("pdf:") for e in extractors), extractors)
+
+        if "pdf" in self.files.get("skipped_optional", []):
+            # 没有后端：断言降级行为，而不是假装它成功了
+            self.assertFalse(any(e.startswith("pdf:") for e in extractors),
+                             "没有 PDF 后端时不该出现 pdf: 抽取器")
+            self.assertNotIn("paper.pdf", os.listdir(self.files["materials_dir"]))
+        else:
+            self.assertTrue(any(e.startswith("pdf:") for e in extractors), extractors)
 
         docs = self.scalar("SELECT COUNT(*) FROM doc")
         archives = [f for f in os.listdir(os.path.join(self.root, "data", "docs"))
@@ -205,7 +217,17 @@ class TestFormatsAndIdempotence(P1Base):
         self.assertEqual(before, self.counts())
         self.assertEqual(summary["chunks_written"], 0)
         by = summary["by_status"]
-        self.assertGreaterEqual(by.get("skipped", 0), 8,
+        # 期望值从夹具**实际内容**算出来，而不是写死 8。写死的话，少一个可选格式
+        # （比如没装 PDF 后端就没生成 paper.pdf）就会让这条与快捷路径无关的测试
+        # 莫名其妙地失败。空文件走的是 empty 而不是 skipped，所以减 1。
+        indexable = [
+            name
+            for directory in self.files["good_dirs"]
+            for name in os.listdir(directory)
+            if os.path.splitext(name)[1].lower()
+            in (".md", ".txt", ".docx", ".pptx", ".pdf")
+        ]
+        self.assertGreaterEqual(by.get("skipped", 0), len(indexable) - 1,
                                 f"the cheap stat shortcut did not engage: {by}")
         # The authoritative file must be byte-identical too, or every run looks
         # like a change and `data/` stops being diffable.
@@ -479,12 +501,23 @@ class TestSafety(P1Base):
         self.assertEqual(before, snapshot(self.src),
                          "import or rebuild modified the original files")
 
-    def test_16_doctor_reports_the_ingest_layer_as_working(self) -> None:
+    def test_16_doctor_reports_the_ingest_layer_honestly(self) -> None:
+        """导入层自检要如实报告，包括「没装 PDF 后端」这个状态。
+
+        `p1-ingest` 在缺后端时给的是 **warn**（工具能用，只是 PDF 读不了），
+        这不是失败。硬断言 pass 等于要求每台机器都装可选包。
+        """
         payload = cli_json(self.root, "doctor")
         check = next(c for c in payload["checks"] if c["name"] == "p1-ingest")
-        self.assertEqual(check["status"], "pass", check)
         self.assertIn("extensions", check["detail"])
         self.assertIn("pdf backend", check["detail"])
+
+        if "pdf" in self.files.get("skipped_optional", []):
+            self.assertEqual(check["status"], "warn", check)
+            self.assertIn("missing", check["detail"])
+            self.assertIn("pypdf", check.get("hint", ""))
+        else:
+            self.assertEqual(check["status"], "pass", check)
 
 
 if __name__ == "__main__":

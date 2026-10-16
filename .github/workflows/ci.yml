@@ -21,13 +21,23 @@ jobs:
   # not that a linter liked it.
   # ---------------------------------------------------------------------------
   test:
-    name: ${{ matrix.os }} / py${{ matrix.python }}
+    name: ${{ matrix.os }} / py${{ matrix.python }} / ${{ matrix.deps }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.9", "3.11", "3.13"]
+        # Two states, because the project promises both:
+        #   none — nothing installed: every optional backend must degrade cleanly
+        #   full — pypdf/openpyxl/zstandard installed: the full path must work
+        # Testing only one of them is how you end up with a suite that quietly
+        # requires packages the README says are optional.
+        deps: ["none", "full"]
+        exclude:
+          # Keep the job count sane: the "full" leg only needs one Python per OS.
+          - { python: "3.9", deps: "full" }
+          - { python: "3.13", deps: "full" }
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +47,33 @@ jobs:
 
       - name: Show the interpreter
         run: python -c "import sys, sqlite3; print(sys.version); print('sqlite', sqlite3.sqlite_version)"
+
+      - name: Install the optional backends (full leg only)
+        if: matrix.deps == 'full'
+        run: python -m pip install --disable-pip-version-check pypdf openpyxl zstandard
+
+      - name: Confirm the intended dependency state
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib, os
+          want = os.environ["DEPS"] == "full"
+          state = {}
+          for mod in ("pypdf", "openpyxl", "zstandard"):
+              try:
+                  importlib.import_module(mod)
+                  state[mod] = True
+              except ImportError:
+                  state[mod] = False
+          print("optional backends present:", state)
+          if want and not all(state.values()):
+              raise SystemExit("full leg is missing an optional backend")
+          if not want and any(state.values()):
+              raise SystemExit("none leg unexpectedly has an optional backend")
+          print("ok: dependency state matches the matrix")
+          PY
+        env:
+          DEPS: ${{ matrix.deps }}
 
       # A fresh clone has no data/, index/, cache/ … — those are gitignored, so
       # `doctor` legitimately fails until `init` has run. Running doctor first
