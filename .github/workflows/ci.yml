@@ -38,8 +38,13 @@ jobs:
       - name: Show the interpreter
         run: python -c "import sys, sqlite3; print(sys.version); print('sqlite', sqlite3.sqlite_version)"
 
-      - name: doctor (self-check must pass on a fresh clone)
-        run: python bin/recall.py doctor
+      # A fresh clone has no data/, index/, cache/ … — those are gitignored, so
+      # `doctor` legitimately fails until `init` has run. Running doctor first
+      # without init made every matrix job abort before a single test ran.
+      - name: init, then doctor must pass
+        run: |
+          python bin/recall.py init
+          python bin/recall.py doctor
 
       - name: P0 — layout, self-check, index basics
         run: python tests/test_p0.py
@@ -105,39 +110,80 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Fail if any module imports something outside the stdlib
+      - name: Optional backends must be guarded; nothing else may be imported
         run: |
           python - <<'PY'
           import ast, pathlib, sys
 
-          # Importable without any install. `zstandard` and `pypdf` are optional
-          # and must be wrapped in try/except by the code that uses them.
-          OPTIONAL = {"zstandard", "pypdf"}
           STDLIB = set(sys.stdlib_module_names)
           LOCAL = {"brain"}
 
-          offenders = []
+          def catches_import_error(node):
+              for handler in node.handlers:
+                  t = handler.type
+                  if t is None:                       # bare `except:`
+                      return True
+                  names = ([t.id] if isinstance(t, ast.Name)
+                           else [e.id for e in getattr(t, "elts", [])
+                                 if isinstance(e, ast.Name)])
+                  if "ImportError" in names or "Exception" in names:
+                      return True
+              return False
+
+          def parents_of(tree):
+              up = {}
+              for node in ast.walk(tree):
+                  for child in ast.iter_child_nodes(node):
+                      up[child] = node
+              return up
+
+          def is_guarded(node, up):
+              cur = up.get(node)
+              while cur is not None:
+                  if isinstance(cur, ast.Try) and catches_import_error(cur):
+                      return True
+                  cur = up.get(cur)
+              return False
+
+          def imported_names(node):
+              if isinstance(node, ast.Import):
+                  return [a.name.split(".")[0] for a in node.names]
+              if isinstance(node, ast.ImportFrom):
+                  return [] if node.level else [(node.module or "").split(".")[0]]
+              return []
+
+          # No allow-list of names on purpose: an allow-list has to be edited
+          # every time a new optional backend appears, and forgetting to edit it
+          # turns into a red CI for a perfectly fine change (that is exactly what
+          # happened with openpyxl / pymupdf / fitz). The rule enforced here is
+          # the project's own convention instead: an optional backend lives
+          # inside `try: import x / except ImportError`, so the tool still runs
+          # when it is not installed.
+          offenders, guarded = [], set()
           for path in sorted(pathlib.Path("brain").rglob("*.py")):
               tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+              up = parents_of(tree)
               for node in ast.walk(tree):
-                  if isinstance(node, ast.Import):
-                      names = [a.name.split(".")[0] for a in node.names]
-                  elif isinstance(node, ast.ImportFrom):
-                      if node.level:            # relative import
+                  for name in imported_names(node):
+                      if not name or name in STDLIB or name in LOCAL:
                           continue
-                      names = [(node.module or "").split(".")[0]]
-                  else:
-                      continue
-                  for name in names:
-                      if not name or name in STDLIB or name in LOCAL or name in OPTIONAL:
+                      if is_guarded(node, up):
+                          guarded.add(name)
                           continue
                       offenders.append(f"{path}:{node.lineno}: {name}")
 
           if offenders:
-              print("third-party imports found:")
-              print("\n".join(offenders))
+              print("unguarded third-party imports:")
+              for item in offenders:
+                  print("  " + item)
+              print()
+              print("Wrap it: `try: import x / except ImportError: raise ParseError(...)`")
+              print("so the tool keeps working when the package is absent.")
               sys.exit(1)
-          print("ok: brain/ imports nothing outside the standard library")
+
+          print("ok: brain/ imports only the standard library")
+          if guarded:
+              print("   guarded optional backends: " + ", ".join(sorted(guarded)))
           PY
 
   # ---------------------------------------------------------------------------

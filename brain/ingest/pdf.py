@@ -49,7 +49,14 @@ def _extract_pymupdf(path: str) -> list[tuple[int, str]]:
 
 
 def _extract_pypdf(path: str) -> list[tuple[int, str]]:
-    from pypdf import PdfReader
+    # 受保护的导入。调用方其实已经用 `pdf_backend()` 确认过它存在，但这里仍然
+    # 自己兜住：这个模块的契约是「缺后端 → ParseError，绝不是导入期崩溃」，
+    # 而只靠调用方守规矩，直接调用这个函数的人就会撞到 ImportError。
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise ParseError(
+            "no PDF backend installed — run: python -m pip install pypdf") from exc
 
     reader = PdfReader(path)
     if getattr(reader, "is_encrypted", False):
