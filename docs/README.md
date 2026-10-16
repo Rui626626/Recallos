@@ -10,7 +10,7 @@
 
 不要把这里的路径当成「你需要准备的东西」。你需要的只有两样：
 
-1. Python 3.9+
+1. Python 3.10+
 2. 那个目录里有 `bin/` 和 `brain/` 的 RecallOS 项目目录
 
 `python bin/recall.py doctor` 会把你机器上的真实情况打印出来——**以它为准**。

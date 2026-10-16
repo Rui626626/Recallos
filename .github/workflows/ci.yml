@@ -27,7 +27,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.9", "3.11", "3.13"]
+        # 3.10 is the floor `doctor` enforces — testing 3.9 only ever produced a
+        # red job for a version the tool does not claim to support.
+        python: ["3.10", "3.11", "3.13"]
         # Two states, because the project promises both:
         #   none — nothing installed: every optional backend must degrade cleanly
         #   full — pypdf/openpyxl/zstandard installed: the full path must work
@@ -36,7 +38,7 @@ jobs:
         deps: ["none", "full"]
         exclude:
           # Keep the job count sane: the "full" leg only needs one Python per OS.
-          - { python: "3.9", deps: "full" }
+          - { python: "3.10", deps: "full" }
           - { python: "3.13", deps: "full" }
     steps:
       - uses: actions/checkout@v4
@@ -120,6 +122,10 @@ jobs:
           PY
 
       - name: The bundled pinyin table must load and be complete
+        # The bash shell is required here: this runner's default shell on Windows
+        # is pwsh, which does not understand a heredoc — the step died there for
+        # a syntax reason that had nothing to do with pinyin.
+        shell: bash
         run: |
           python - <<'PY'
           from brain.core import pinyin
@@ -148,6 +154,7 @@ jobs:
           python-version: "3.11"
 
       - name: Optional backends must be guarded; nothing else may be imported
+        shell: bash
         run: |
           python - <<'PY'
           import ast, pathlib, sys
@@ -272,6 +279,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Fail on absolute home paths or the author's name
+        shell: bash
         run: |
           python - <<'PY'
           import pathlib, re, subprocess, sys
@@ -315,6 +323,47 @@ jobs:
                     "such — the shipped docs must work on a fresh machine.")
               sys.exit(1)
           print("ok: no author-specific paths in any tracked file")
+          PY
+
+  # ---------------------------------------------------------------------------
+  # A heredoc needs bash. GitHub's default shell on Windows is pwsh, which does
+  # not understand `<<'PY'` — the step then dies with a syntax error that looks
+  # nothing like the problem. This bit us once; it should not bite twice.
+  # ---------------------------------------------------------------------------
+  workflow-lint:
+    name: heredocs must declare a bash shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every step containing a heredoc must declare the bash shell
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          lines = pathlib.Path(".github/workflows/ci.yml").read_text(
+              encoding="utf-8").splitlines()
+          step_shell, offenders, current = None, [], None
+          for number, line in enumerate(lines, 1):
+              stripped = line.strip()
+              if line.startswith("      - "):       # a new step begins
+                  step_shell, current = None, stripped[:60]
+              # Skip comments: this very script mentions the heredoc marker.
+              if stripped.startswith("#"):
+                  continue
+              m = re.match(r"\s+shell:\s*(\S+)", line)
+              if m and not stripped.startswith("- name:"):
+                  step_shell = m.group(1)
+              if "<<'PY'" in line and step_shell != "bash":
+                  offenders.append((number, current))
+
+          if offenders:
+              print("these heredoc steps do not declare the bash shell:")
+              for number, name in offenders:
+                  print(f"  ci.yml:{number}  {name}")
+              sys.exit(1)
+          print("ok: every heredoc step declares the bash shell")
           PY
 
   # ---------------------------------------------------------------------------

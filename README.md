@@ -51,7 +51,7 @@ macOS / Linux：
 bash install.sh
 ```
 
-**除了 Python 3.9+ 什么都不需要。** 标准库之外零依赖；`zstandard` 与 `pypdf` 是可选
+**除了 Python 3.10+ 什么都不需要。** 标准库之外零依赖；`zstandard` 与 `pypdf` 是可选
 增强，没有它们时相关格式会被跳过**并留下一条明确的记录**，不会静默失败。
 
 ---
@@ -209,8 +209,9 @@ python tests/test_p5.py   # 28 项  零设置检索 / 技能安装 / 打包不�
 
 ## 环境
 
-* Python **3.9+**，无需任何第三方包（可选：`zstandard`、`pypdf`）
-* SQLite **3.9+ 且带 FTS5**（Python 自带的那个就有）
+* Python **3.10+**，无需任何第三方包（可选：`zstandard`、`pypdf`、`openpyxl`）
+* SQLite **3.34+ 且带 FTS5**（中文检索用到 `trigram` 分词器，它从 3.34 开始才有；
+  Python 3.10+ 自带的 SQLite 都满足。`doctor` 会实测并报出来）
 * Windows / macOS / Linux
 
 ## 许可
