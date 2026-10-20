@@ -39,13 +39,14 @@ from brain.cli import index as index_cli    # noqa: E402
 from brain.cli import init as init_cli      # noqa: E402
 from brain.cli import install_skill as install_skill_cli  # noqa: E402
 from brain.cli import memory as memory_cli  # noqa: E402
+from brain.cli import scope as scope_cli    # noqa: E402
 from brain.cli import search as search_cli  # noqa: E402
 from brain.cli import verify as verify_cli  # noqa: E402
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 
-_COMMANDS = (init_cli, doctor_cli, add_cli, index_cli, search_cli, alias_cli,
-             archive_cli, compose_cli, verify_cli, memory_cli,
+_COMMANDS = (init_cli, doctor_cli, scope_cli, add_cli, index_cli, search_cli,
+             alias_cli, archive_cli, compose_cli, verify_cli, memory_cli,
              install_skill_cli)
 
 

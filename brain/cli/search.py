@@ -64,15 +64,23 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=run)
 
 
-def _live(cfg, args) -> int:
-    """`--in` 模式：不读也不写索引，直接搜目录。"""
+def _live(cfg, args, targets: list[str] | None = None, via_scope: bool = False) -> int:
+    """现场模式：不读也不写索引，直接搜目录。
+
+    `--in` 指定目录；索引还是空的时候，`run()` 会把**已授权范围**（`scope`）
+    从这里传进来（`via_scope=True`），于是「一句话就能搜到」成立。
+    """
     from ..core.live import DEFAULT_MAX_FILES, live_search
 
-    missing = [p for p in args.live_in if not os.path.exists(p)]
+    requested = list(targets if targets is not None else args.live_in)
+    missing = [p for p in requested if not os.path.exists(p)]
     for p in missing:
         print(f"路径不存在：{p}", file=sys.stderr)
-    targets = [p for p in args.live_in if os.path.exists(p)]
+    targets = [p for p in requested if os.path.exists(p)]
     if not targets:
+        if via_scope:
+            print("已授权的目录都不存在了（移动或删除？）。重新授权：\n"
+                  "  recall.py scope default", file=sys.stderr)
         return 2
 
     alias_map = (fuzzy.load_aliases(cfg).get("_merged") or {})
@@ -95,10 +103,12 @@ def _live(cfg, args) -> int:
 
     hits = payload["hits"]
     if args.json:
+        payload["via_scope"] = via_scope
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if hits else 1
 
-    print(f"search: {payload['query']}   [现场模式 · 未建索引]")
+    header = "[现场模式 · 未建索引]" if not via_scope else "[已授权范围 · 未建索引]"
+    print(f"search: {payload['query']}   {header}")
     print(f"  目录    {', '.join(payload['roots'])}")
     print(f"  扫描    {payload['scanned']} 个文件，解析成功 {payload['parsed']}，"
           f"失败 {payload['failed']}，耗时 {payload['elapsed_s']}s")
@@ -148,22 +158,34 @@ def run(args: argparse.Namespace) -> int:
     try:
         counts = store.counts()
         if not counts.get("docs"):
-            # 空库不是错误，是一个**还没做第一步**的状态。给出的必须是能直接
-            # 照抄的两条路，而不是一句「请先建库」。
+            # 空库不是错误，是一个**还没做第一步**的状态。
             #
+            # 但「还没建库」不等于「不能搜」。如果用户授权过范围（scope），
+            # 这里就直接现场搜给他 —— 让用户每次都报路径是自相矛盾的：
+            # 他说得清路径，就说明他知道文件在哪，那还要这个工具干什么。
+            scope = cfg.enabled_roots()
+            if scope:
+                # 不要在这里自己 close()：外层 finally 会关。Store.close() 不可重入
+                # （第二次调用时 conn.commit() 会在已关闭的连接上报错）。
+                return _live(cfg, args, targets=scope, via_scope=True)
+
+            # 没授权过范围：给两条能直接照抄的路，而不是一句「请先建库」。
             # 命令一律写绝对路径：这条提示会出现在任何 cwd 下，`recall.py ...`
             # 这种写法抄过去就跑不起来 —— 而跑不起来正是「AI 说工具没装」的起点。
             from .install_skill import entry_path
             entry = f'"{sys.executable}" "{entry_path()}"'
-            print("索引里还没有任何资料。两条路，任选一条：\n"
+            print("索引里还没有任何资料，也还没有授权检索范围。三条路，任选一条：\n"
                   "\n"
-                  "  1) 先直接搜一个目录（不建索引，立刻出结果）：\n"
+                  "  0) 一次性授权常用目录（**之后一句话就能搜，不再问你**）：\n"
+                  f"     {entry} scope default\n"
+                  "\n"
+                  "  1) 只搜一次，不授权（不建索引，立刻出结果）：\n"
                   f'     {entry} search "你的查询" --in "C:\\某个文件夹"\n'
                   "\n"
                   "  2) 先收进来（之后检索更快，且每次都能回查出处）：\n"
                   f'     {entry} add "C:\\某个文件夹"\n'
                   "\n"
-                  "两者都不会改动你的原文件。", file=sys.stderr)
+                  "三条路都不会改动你的原文件。", file=sys.stderr)
             return 2
 
         result = retrieve(

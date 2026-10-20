@@ -211,6 +211,128 @@ class TestLiveSearch(LiveBase):
         self.assertIn("耗时", out)
 
 
+class TestConsentedScope(unittest.TestCase):
+    """一次性授权：问一次、记住，之后一句话就能搜。
+
+    这条修的是一个**产品层面的自相矛盾**：原来的铁律是「只处理明确给出的路径」，
+    被实现成了「每次检索前问用户目录」。可用户说得清目录，就说明他知道文件在哪 ——
+    那还要这个工具干什么？工具的用途恰恰是他不想记得。
+
+    正确形状是「一次性授权 + 记住 + 硬边界」，这组测试同时钉住三件事：
+
+    1. 没授权时**不扫盘**，并且明确告诉用户怎么授权；
+    2. 授权之后 `search "<查询>"` 直接出结果，不再问；
+    3. **范围之外永远读不到** —— 这是铁律真正要保护的东西。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="recallos-p5-scope-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.root = os.path.join(self.tmp, "data-root")
+        os.makedirs(self.root, exist_ok=True)
+
+        self.home = os.path.join(self.tmp, "home")
+        self.documents = os.path.join(self.home, "Documents")
+        self.desktop = os.path.join(self.home, "Desktop")
+        self.outside = os.path.join(self.tmp, "outside")
+        for path in (self.documents, self.desktop, self.outside):
+            os.makedirs(path, exist_ok=True)
+
+        self._write(os.path.join(self.documents, "个人简历.md"),
+                    "# 张伟 简历\n\n求职意向：数据分析。\n")
+        self._write(os.path.join(self.outside, "独有.md"),
+                    "# 机密甲\n\n这一份只在范围之外。\n")
+
+    @staticmethod
+    def _write(path: str, body: str) -> None:
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(body)
+
+    def _config(self) -> dict:
+        path = os.path.join(self.root, "brain.config.json")
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    # ------------------------------------------------------------------ 未授权
+
+    def test_without_a_scope_search_never_scans_and_says_how(self):
+        proc = run_cli(self.root, "search", "简历", expect=2)
+        text = proc.stdout + proc.stderr
+        self.assertIn("scope default", text, "空库提示必须给出一次性授权这条路")
+        self.assertIn("--in", text)
+        self.assertIn("add", text)
+
+    def test_scope_show_says_nothing_is_authorised_yet(self):
+        payload = cli_json(self.root, "scope", "show")
+        self.assertEqual(payload["scope"], [])
+        self.assertFalse(payload["configured"])
+
+    # -------------------------------------------------------------------- 授权
+
+    def test_scope_default_authorises_only_directories_that_exist(self):
+        payload = cli_json(self.root, "scope", "default", "--home", self.home)
+        self.assertEqual(payload["action"], "default")
+        self.assertEqual(len(payload["scope"]), 2)
+        self.assertIn(os.path.abspath(self.documents), payload["scope"])
+        self.assertIn(os.path.abspath(self.desktop), payload["scope"])
+
+    def test_scope_is_persisted_into_the_config(self):
+        cli_json(self.root, "scope", "set", self.documents)
+        roots = [r["path"] for r in self._config()["roots"]]
+        self.assertEqual(roots, [os.path.abspath(self.documents)])
+
+    def test_a_missing_directory_is_reported_and_changes_nothing(self):
+        proc = run_cli(self.root, "scope", "set",
+                       os.path.join(self.tmp, "根本不存在"), expect=2)
+        self.assertIn("不存在", proc.stderr + proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "brain.config.json")),
+                         "全部路径都无效时不该写出配置")
+
+    def test_dry_run_does_not_write(self):
+        cli_json(self.root, "scope", "default", "--home", self.home, "--dry-run")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "brain.config.json")))
+
+    # ------------------------------------------------------- 一句话就能搜到
+
+    def test_search_uses_the_scope_without_asking_again(self):
+        """这是本次改动的核心：授权之后一条命令出结果，用户不用再报路径。"""
+        cli_json(self.root, "scope", "default", "--home", self.home)
+        payload = cli_json(self.root, "search", "简历")
+        self.assertTrue(payload["via_scope"], "应当说明这次用的是已授权范围")
+        self.assertEqual(payload["mode"], "live")
+        self.assertTrue(payload["hits"], "授权过的目录里应当搜到简历")
+        self.assertEqual(os.path.basename(payload["hits"][0]["path"]), "个人简历.md")
+
+    def test_search_never_reads_outside_the_scope(self):
+        """铁律真正要保护的东西：**范围之外一个字节都不读**。"""
+        cli_json(self.root, "scope", "set", self.documents)
+        payload = cli_json(self.root, "search", "机密甲", expect=None)
+        self.assertEqual(payload["hits"], [], "范围之外的文件不该被搜到")
+
+    def test_granting_a_directory_makes_it_searchable(self):
+        cli_json(self.root, "scope", "set", self.documents)
+        cli_json(self.root, "scope", "add", self.outside)
+        payload = cli_json(self.root, "search", "机密甲", expect=None)
+        self.assertTrue(payload["hits"], "授权之后就该搜得到")
+        self.assertEqual(os.path.basename(payload["hits"][0]["path"]), "独有.md")
+
+    def test_revoking_a_directory_takes_access_away(self):
+        cli_json(self.root, "scope", "set", self.documents, self.outside)
+        self.assertTrue(cli_json(self.root, "search", "机密甲", expect=None)["hits"])
+        cli_json(self.root, "scope", "rm", self.outside)
+        revoked = cli_json(self.root, "search", "机密甲", expect=None)
+        self.assertEqual(revoked["hits"], [], "撤销之后就不该再读到")
+
+    def test_scope_does_not_touch_a_built_index(self):
+        """有索引时走索引，不因为存在 scope 就改走现场模式。"""
+        cli_json(self.root, "scope", "set", self.documents)
+        cli_json(self.root, "add", self.documents)
+        payload = cli_json(self.root, "search", "简历")
+        self.assertNotIn("via_scope", payload, "有索引时不该退回现场模式")
+        self.assertIn("stages", payload, "索引模式才会给出四段召回的统计")
+        self.assertTrue(payload["hits"])
+
+
 class TestInstallSkill(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="recallos-p5-skill-")

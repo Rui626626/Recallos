@@ -385,6 +385,7 @@ def run(args: argparse.Namespace) -> int:
         print(json.dumps({
             "root": cfg.root_dir,
             "ok": not failures,
+            "scope": cfg.enabled_roots(),
             "summary": {"pass": len(passed), "warn": len(warnings),
                         "fail": len(failures), "todo": len(todos)},
             "checks": checks,
@@ -392,6 +393,14 @@ def run(args: argparse.Namespace) -> int:
         return 1 if failures else 0
 
     print(f"RecallOS doctor — {cfg.root_dir}")
+    # 检索范围单独报一行：**「为什么搜不到」最常见的答案就是这里**。
+    # 它不是 pass/fail（没授权是合法状态），所以不占一个检查位。
+    scope = cfg.enabled_roots()
+    if scope:
+        print(f"  检索范围  {len(scope)} 个目录：" +
+              "、".join(os.path.basename(p) or p for p in scope))
+    else:
+        print("  检索范围  未授权 —— search 不会扫盘；一次授权：scope default")
     print()
     for c in checks:
         mark = _MARKS[c["status"]]
