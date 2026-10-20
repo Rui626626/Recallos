@@ -488,6 +488,29 @@ class TestInstalledSkillIsSelfLocating(unittest.TestCase):
         self.assertNotIn(stale, self._text())
         self.assertIn(install_skill.entry_path(), self._text())
 
+    def test_reinstall_after_a_pull_is_reported_as_an_upgrade(self):
+        """`git pull` 之后技能正文变了：报错必须说「版本更新过」。
+
+        装好的副本不会随仓库更新 —— 用户升级时必然遇到「内容不同」，
+        如果把这句话写成「你可能改过」，他会以为升级会毁掉自己的东西，
+        于是停在一个用着旧技能的中间状态。
+        """
+        self._install()
+        stale = self._text().replace("第 0 步", "旧版本里的小标题")
+        with open(self.installed, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(stale)
+
+        proc = run_cli(self.root, "install-skill", "--to", self.target_root,
+                       expect=1)
+        text = proc.stdout + proc.stderr
+        self.assertIn("版本", text, "必须点明这是版本不一致，不是用户乱改")
+        self.assertIn("--force", text)
+
+        payload = self._install("--force")
+        self.assertEqual(payload["status"], "outdated")
+        self.assertIn("第 0 步", self._text(), "升级后应当是随包版本的正文")
+        self.assertNotIn("旧版本里的小标题", self._text())
+
     def test_legacy_copy_needs_force_and_says_why(self):
         """老版本装出来的副本没有本机块：必须拒绝，并说清加什么参数。"""
         os.makedirs(os.path.dirname(self.installed), exist_ok=True)

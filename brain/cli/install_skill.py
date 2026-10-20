@@ -149,7 +149,9 @@ def _decide(existing: str, rendered: str) -> tuple[str, str]:
     * 正文相同、只有本机块不同（仓库搬家了，或者副本是本机块还没填的模板）
       → **静默更新**，这不算用户改动。
     * 没有本机块 → 老版本装出来的副本 / 从别处拷来的旧文件，要 `--force`。
-    * 其余 → 需要 `--force`。用户可能自己改过技能。
+    * 有本机块但正文不同 → **装过的是旧版本**（`git pull` 之后就会遇到），
+      也可能用户改过。两种都拒绝自动覆盖，但要**把话说对**：用户需要知道
+      加 `--force` 是升级，不是"毁掉自己的改动"。
     """
     if existing == rendered:
         return "up-to-date", "skip"
@@ -159,6 +161,8 @@ def _decide(existing: str, rendered: str) -> tuple[str, str]:
         return "needs-local-block", "write"
     if existing_parts == rendered_parts:
         return "refreshed", "write"
+    if ENTRY_MARK in existing:
+        return "outdated", "write"
     return "differs", "write"
 
 
@@ -281,8 +285,8 @@ def run(args: argparse.Namespace) -> int:
     existing_text = _read(target) if existed else ""
     if existed:
         status, action = _decide(existing_text, rendered)
-        if action == "write" and status in ("differs", "needs-local-block") \
-                and not args.force:
+        if action == "write" and status in ("differs", "needs-local-block",
+                                           "outdated") and not args.force:
             action = "refused"
     else:
         status, action = "installed", "write"
@@ -324,6 +328,12 @@ def run(args: argparse.Namespace) -> int:
             print("说明它不是由 install-skill 写的（老版本副本或手工复制）——")
             print("这类副本里没有绝对路径，AI 会找不到 recall.py。")
             print("加 --force 重新生成一份带本机路径的技能。")
+        elif status == "outdated":
+            print(f"装过的技能和随包的版本不一致：\n  {target}\n")
+            print("最常见的原因是**技能更新过了**（git pull 之后就会这样）；")
+            print("也可能是你自己改过。两种情况都先不覆盖。")
+            print("加 --force 升级到随包版本——它只重写那份 SKILL.md，"
+                  "不碰你的资料库、索引和记忆。")
         else:
             print(f"目标位置已经有一个**内容不同**的 SKILL.md：\n  {target}\n")
             print("这可能是你自己改过的版本。为免覆盖你的改动，这里不写入。")
