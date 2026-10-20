@@ -49,13 +49,17 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 | `memory remember/list/show/expire/restore/export` | 长期记忆，一个主题一个文件 | ✅ |
 | `install-skill [--user]` | 把随包技能装到 DSH 会扫的位置 | ✅ |
 
-175 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
+176 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
 
 ## ⭐ 库是空的时候，不要只会说「请先建库」
 
 **前提：第 0 步已经通过。** 命令跑不通时先修安装，别急着问目录。
 
 这是最容易被忽略、也最影响体验的一条。
+
+**空库 ≠ 不能搜。** `--in` 现场模式**完全不读索引**：它现场遍历、现场解析、现场
+打分，所以「库是空的」不是阻塞理由，只是「还没建库」这个事实。不要说出
+「所以我没有可搜的对象」这种话——那句话把工具说成了废的，而它只是缺一个目录。
 
 `brain.config.json` 的 `roots` 默认为空，也就是说**刚装好的库搜不到任何东西**。
 这时候不要说「索引里没有资料」，那等于把用户挡在门外。正确做法是：
@@ -64,11 +68,11 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
    > 「你想让我先看哪个文件夹？比如 `Documents` 或 `Desktop` 里的某个目录。」
 2. **拿到目录就立刻现场搜，不要先建库**：
    ```
-   python bin/recall.py search "用户的查询" --in "<他给的目录>"
+   python "<入口>" search "用户的查询" --in "<他给的目录>"
    ```
    这条命令不需要 `init`、不需要 `add`，直接出结果。
 3. 如果他还会反复问，再建议建库（更快、每次都能回查出处）：
-   `python bin/recall.py add "<那个目录>"`
+   `python "<入口>" add "<那个目录>"`
 
 **为什么强调这个**：用户下载一个「帮我找文件」的工具，第一句话得到的如果是
 「请先运行 add」，他会直接放弃。先给结果，再谈优化。
@@ -76,24 +80,27 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 ## 用法
 
 所有命令都用**「本机位置」里那条绝对路径**，不需要 `cd`，也不需要猜仓库在哪。
-下文用 `recall.py` 代指它（实际调用形如 `python "<仓库>/bin/recall.py"`）。
+下面把入口写成 `<入口>`（它是一个带尖括号的**占位符**，必须替换成「本机位置」里
+那条真实的 `"<仓库>/bin/recall.py"`）。**不要**把它写成 `python bin/recall.py`
+这种相对路径——那个基准目录不存在，抄过去就跑不起来，而跑不起来的后果就是 AI
+说「工具还没装」。
 Windows 上先设一次 `$env:PYTHONIOENCODING="utf-8"`，否则中文输出会乱码。
 
 ```powershell
 
-python bin/recall.py doctor                       # 先自检
-python bin/recall.py install-skill --user         # 让 DSH 认识它（只需一次）
-python bin/recall.py search "查询" --in "某目录"    # 零设置：不建库直接搜
-python bin/recall.py add "某个文件夹"               # 导入（只读，绝不改动原文件）
-python bin/recall.py search "通货膨胀"              # 检索
-python bin/recall.py search "通货膨胀" --explain     # 看每一段召回了多少
-python bin/recall.py search "复习资料" --render      # 带 locator 的 markdown，可回查
-python bin/recall.py compose "通货膨胀" --kind review  # 汇编成带出处的成品
-python bin/recall.py verify artifacts/*.md         # 回查成品里每个出处
-python bin\recall.py memory remember "用户偏好简洁回答" --topic "回答偏好"
-python bin\recall.py memory expire "过时的结论"      # 默认搜不到，--include-expired 能搜到
-python bin\recall.py archive "会话目录或文件"         # 对话记录入库
-python bin\recall.py alias learn                  # 从正文里学「中文（English）」对照
+python "<入口>" doctor                       # 先自检
+python "<入口>" install-skill --user         # 让 DSH 认识它（只需一次）
+python "<入口>" search "查询" --in "某目录"    # 零设置：不建库直接搜
+python "<入口>" add "某个文件夹"               # 导入（只读，绝不改动原文件）
+python "<入口>" search "通货膨胀"              # 检索
+python "<入口>" search "通货膨胀" --explain     # 看每一段召回了多少
+python "<入口>" search "复习资料" --render      # 带 locator 的 markdown，可回查
+python "<入口>" compose "通货膨胀" --kind review  # 汇编成带出处的成品
+python "<入口>" verify artifacts/*.md         # 回查成品里每个出处
+python "<入口>" memory remember "用户偏好简洁回答" --topic "回答偏好"
+python "<入口>" memory expire "过时的结论"      # 默认搜不到，--include-expired 能搜到
+python "<入口>" archive "会话目录或文件"         # 对话记录入库
+python "<入口>" alias learn                  # 从正文里学「中文（English）」对照
 ```
 
 **重要**：`add` / `archive` 只接受用户**明确给出**的路径。`brain.config.json` 的 `roots` 默认为空数组——在没有用户明确指示时，**不要**扫描任何目录、不要导入历史对话、不要创建定时任务。对话记录属于隐私内容，尤其要等用户点名。
@@ -182,10 +189,10 @@ python tests\test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
 python tests\test_p2.py   # 56 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests\test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests\test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
-python tests\test_p5.py   # 42 项  零设置检索 / 技能自定位 / 打包不变量
+python tests\test_p5.py   # 43 项  零设置检索 / 技能自定位 / 打包不变量
 ```
 
-共 175 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
+共 176 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
 
 **拼音表怎么来的**：`tools/build_pinyin_table.py`（从 pypinyin 0.55.0 一次性生成，
 结果可复现）。它是随包数据，不是运行时依赖——`brain/data/pinyin.tsv.gz` 删掉就降级。

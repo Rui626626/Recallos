@@ -487,7 +487,7 @@ class TestPackagingInvariants(unittest.TestCase):
         self.assertIn(b"\r\n", data, "cmd 脚本必须 CRLF")
         self.assertIn(b"%~dp0recall.py", data)
 
-    def test_bundled_skill_template_is_renderable_and_idempotent(self):
+    def test_bundled_template_is_renderable(self):
         """模板必须带界标，渲染两次结果一致 —— 否则每次安装都会「内容不同」。"""
         with open(os.path.join(PROJECT, "skills", "deepseek-harness", "SKILL.md"),
                   encoding="utf-8") as fh:
@@ -498,6 +498,32 @@ class TestPackagingInvariants(unittest.TestCase):
         self.assertEqual(rendered, install_skill.render_skill(rendered,
                                                               os.path.join(PROJECT, "x")))
         self.assertIn(os.path.join(PROJECT, "x", "bin", "recall.py"), rendered)
+
+    def test_skill_never_shows_a_bare_relative_command(self):
+        """技能里不许出现 `python bin/recall.py …` 这种「看着能跑」的命令。
+
+        它只在「cwd 恰好是仓库父目录」时成立，而技能是装在技能根里的 ——
+        AI 照抄过去必然报「文件不存在」，然后把这句失败解释成「工具还没装」。
+        这条 bug 的起点就是这个形状，所以直接在模板层面禁掉。
+
+        唯一允许的例外：明确跟着 `cd Recallos` 的安装引导（那时 cwd 是对的），
+        以及**用来禁止它**的那句话本身（引用坏例子不算使用坏例子）。
+        """
+        with open(os.path.join(PROJECT, "skills", "deepseek-harness", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        offenders = []
+        for number, line in enumerate(lines, 1):
+            if not re.search(r"python3?\s+(bin|recallos)[\\/]recall\.py", line):
+                continue
+            if "cd " in line:          # 安装引导：先 cd 进仓库，相对路径是对的
+                continue
+            if any(word in line for word in ("不要", "禁止", "不许")):
+                continue               # 这是在禁止这种写法，不是在教它
+            offenders.append(f"{number}: {line.strip()}")
+        self.assertEqual(offenders, [],
+                         "技能里出现了没有基准目录的相对命令（AI 会照抄并失败）：\n"
+                         + "\n".join(offenders))
 
     def test_install_ps1_has_a_utf8_bom(self):
         path = os.path.join(PROJECT, "install.ps1")
