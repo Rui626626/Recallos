@@ -50,7 +50,7 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 | `memory remember/list/show/expire/restore/export` | 长期记忆，一个主题一个文件 | ✅ |
 | `install-skill [--user]` | 把随包技能装到 DSH 会扫的位置 | ✅ |
 
-189 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
+194 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
 
 ## ⭐ 检索范围：问一次、记住，之后一句话就搜
 
@@ -208,13 +208,13 @@ python "<入口>" alias learn                  # 从正文里学「中文（Engl
 ```powershell
 python tests\test_p0.py   # 17 项  骨架 / 自检 / 索引基础
 python tests\test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
-python tests\test_p2.py   # 56 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
+python tests\test_p2.py   # 61 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests\test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests\test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
 python tests\test_p5.py   # 56 项  零设置检索 / 技能自定位 / 打包不变量
 ```
 
-共 189 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
+共 194 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
 
 **拼音表怎么来的**：`tools/build_pinyin_table.py`（从 pypinyin 0.55.0 一次性生成，
 结果可复现）。它是随包数据，不是运行时依赖——`brain/data/pinyin.tsv.gz` 删掉就降级。

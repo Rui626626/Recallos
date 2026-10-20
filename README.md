@@ -6,7 +6,7 @@
 **每条结果都带能回查的出处**。
 
 **当前状态：P5 —— 导入 / 检索 / 对话归档 / 成品汇编 / 长期记忆 / 零设置检索，全部可用。**
-189 项黑盒测试。
+194 项黑盒测试。
 
 ---
 
@@ -219,7 +219,7 @@ recallos/
 │   ├── adapters/          宿主适配层
 │   └── pipeline.py        导入流水线（幂等、可重建）
 ├── tools/                 构建脚本（拼音表生成等）
-├── tests/                 189 项黑盒测试
+├── tests/                 194 项黑盒测试
 ├── docs/                  设计与审查文档
 ├── data/                  权威数据：导入档案 + 长期记忆（默认不入库）
 ├── index/                 SQLite 索引（派生，可删）
@@ -239,7 +239,7 @@ recallos/
 ```bash
 python tests/test_p0.py   # 17 项  骨架 / 自检 / 索引基础
 python tests/test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
-python tests/test_p2.py   # 56 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
+python tests/test_p2.py   # 61 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests/test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests/test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
 python tests/test_p5.py   # 56 项  零设置检索 / 授权范围 / 技能自定位 / 打包不变量

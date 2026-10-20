@@ -224,6 +224,12 @@ def _from_dict(root: str, raw: dict) -> Config:
 
 def save_config(cfg: Config, path: Optional[str] = None) -> str:
     target = path or os.path.join(cfg.root_dir, CONFIG_NAME)
+    # 建父目录：`scope` 可能是用户在新机器上跑的**第一条**命令，那时还没有
+    # `init` 过，甚至 `RECALLOS_ROOT` 指着的目录都还不存在。少这一行就会在
+    # 「刚装好」这条最该顺畅的路径上抛 FileNotFoundError。
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(target, "w", encoding="utf-8") as fh:
         json.dump(cfg.to_json(), fh, ensure_ascii=False, indent=2)
         fh.write("\n")

@@ -101,9 +101,19 @@ def _current(cfg: Config) -> list[str]:
     return [r.resolved(cfg.root_dir) for r in cfg.roots]
 
 
-def _write_scope(cfg: Config, paths: list[str]) -> str:
+def _write_scope(cfg: Config, paths: list[str]) -> str | None:
+    """把范围写进配置。返回配置路径；写不进去返回 None（调用方报错退出）。
+
+    「失败必须留痕」：写不进去要说清楚目标和原因，不要甩一个 traceback 给用户。
+    """
     cfg.roots = [Root(path=p, enabled=True, label="") for p in paths]
-    return save_config(cfg)
+    try:
+        return save_config(cfg)
+    except OSError as exc:
+        print(f"写不进配置文件：{exc}\n"
+              f"  目标 {os.path.join(cfg.root_dir, 'brain.config.json')}\n"
+              "  范围没有被改动。检查目录权限后重试。", file=sys.stderr)
+        return None
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -176,7 +186,8 @@ def _edit(cfg: Config, args, action: str) -> int:
         before = _current(cfg)
         after = [p for p in before if _key(p) not in wanted]
         removed = [p for p in before if _key(p) in wanted]
-        _write_scope(cfg, after)
+        if _write_scope(cfg, after) is None:
+            return 2
         payload = {"action": "rm", "removed": removed, "scope": after}
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -203,6 +214,8 @@ def _edit(cfg: Config, args, action: str) -> int:
         after = existing + [p for p in ok if _key(p) not in seen]
 
     config_path = _write_scope(cfg, after)
+    if config_path is None:
+        return 2
     payload = {"action": action, "added": ok, "problems": problems,
                "scope": after, "config": config_path}
     if args.json:
@@ -235,6 +248,8 @@ def _default(cfg: Config, args) -> int:
         return 0
 
     config_path = _write_scope(cfg, candidates)
+    if config_path is None:
+        return 2
     payload = {"action": "default", "added": candidates, "scope": candidates,
                "config": config_path}
     if args.json:

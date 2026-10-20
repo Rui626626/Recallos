@@ -54,6 +54,62 @@ def cli_json(root: str, *args: str, expect: int | None = 0) -> dict:
     return json.loads(run_cli(root, *args, "--json", expect=expect).stdout)
 
 
+class TestTitleOnlyDocuments(unittest.TestCase):
+    """整篇只有标题的文档必须可搜 —— 这是「搜标题返回空」的第二次复发。
+
+    第一次是「只索引正文」（ch1→ch2）。这一次更隐蔽：markdown 的标题行被当作
+    结构而不是正文，于是 `# 简历` 这样的文件 `segments` 为空、被判成 empty、
+    写入 0 个切片 —— 连它自己的标题都搜不到。
+
+    而「找回资料」最常见的入口恰恰就是名字。所以这里钉三条：
+    只有标题的能搜到；标题路径里的每一层都能搜到；**0 字节文件仍然不入库**
+    （否则每个空占位文件都会因为文件名而出现在结果里）。
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="recallos-p2-titleonly-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, True))
+        self.src = os.path.join(self.root, "资料")
+        os.makedirs(self.src, exist_ok=True)
+        self._write("简历.md", "# 简历\n")
+        self._write("课纲.md", "# 课纲\n## 第二节 反向传播\n")
+        self._write("空.md", "")
+
+    def _write(self, name: str, body: str) -> None:
+        with open(os.path.join(self.src, name), "w", encoding="utf-8",
+                  newline="\n") as fh:
+            fh.write(body)
+
+    def test_only_the_title_still_gets_a_chunk(self):
+        out = run_cli(self.root, "add", self.src).stdout
+        self.assertIn("chunks written  2", out, "两份只有标题的文档都应写入切片")
+        self.assertIn("empty          1", out, "0 字节文件必须仍然是 empty")
+
+    def test_the_title_itself_is_searchable(self):
+        run_cli(self.root, "add", self.src)
+        payload = cli_json(self.root, "search", "简历")
+        self.assertTrue(payload["hits"], "整篇只有 `# 简历` 的文件也应当搜得到")
+        hit = payload["hits"][0]
+        self.assertEqual(hit["title"], "简历")
+        self.assertTrue(hit["source_ref"].endswith("简历.md"))
+
+    def test_every_level_of_the_heading_path_is_searchable(self):
+        run_cli(self.root, "add", self.src)
+        for query in ("课纲", "第二节", "反向传播"):
+            payload = cli_json(self.root, "search", query, expect=None)
+            self.assertTrue(payload["hits"], f"标题路径里的「{query}」应当可搜")
+
+    def test_an_empty_file_does_not_appear_via_its_filename(self):
+        run_cli(self.root, "add", self.src)
+        payload = cli_json(self.root, "search", "空", expect=None)
+        self.assertEqual(payload["hits"], [],
+                         "0 字节文件不该因为文件名而被搜到")
+
+    def test_live_mode_agrees_with_the_index(self):
+        payload = cli_json(self.root, "search", "简历", "--in", self.src)
+        self.assertTrue(payload["hits"], "现场模式与索引模式的结论必须一致")
+
+
 # --------------------------------------------------------------------- unit: fuzzy
 
 

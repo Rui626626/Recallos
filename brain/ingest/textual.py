@@ -91,6 +91,19 @@ def parse_markdown(path: str) -> ParsedDoc:
     flush()
 
     title = stack[0][1] if stack and stack[0][0] == 1 else stem
+
+    # 只有标题、没有正文的文档（`# 简历` 整份文件就这一行）。
+    #
+    # 标题是作者**明确写下来的内容**，不是从文件名猜的，所以它必须能被搜到。
+    # 原来这里会返回空 segments，于是整份文件被判成「空」、写入 0 个切片 ——
+    # 连它自己的标题都搜不到。而用户找资料时记得的往往就是名字。
+    #
+    # 注意与「0 字节文件」的区别：那种文件连标题行都没有（`stack` 为空），
+    # 仍然走 empty，不会因为文件名而凭空出现在检索结果里。
+    if not segments and stack:
+        # 用**整条标题路径**当内容：`# 简历` → 「简历」，`# 课纲 › 第二节` → 两个词都可搜。
+        segments = [Segment(" › ".join(h for _, h in stack), heading_path="")]
+
     return ParsedDoc(title=title, segments=segments, extractor="markdown",
                      meta={"encoding": enc})
 

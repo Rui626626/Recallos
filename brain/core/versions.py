@@ -27,15 +27,19 @@ CHUNKER_ALGO: Final[str] = "k1"
 #   ch1: 切片正文
 #   ch2: 文档标题 + 标题路径 + 切片正文
 #   ch3: 上述内容 + 汉字拼音连写（拼音搜索与同音字容错）
+#   ch4: 只有标题的文档也建切片（原来整篇只有 `# 简历` 的文件被判成空，
+#        写入 0 个切片 —— 于是连它自己的标题都搜不到）
 # 从 ch1 到 ch2 修的是一个实测发现的盲区：标题和小标题都不在正文里，只索引正文
 # 就会出现「搜文档自己的标题返回空」。老的索引必须重建，靠这个戳自动触发。
-INDEX_CONTENT_VERSION: Final[str] = "ch3"
+INDEX_CONTENT_VERSION: Final[str] = "ch4"
 
 # Per-extractor version. Bump for one format when its parser starts producing
 # different text — that is what makes "upgrade the parser, re-index only the
 # affected documents" possible instead of re-indexing everything.
 EXTRACTORS: Final[dict[str, str]] = {
-    "markdown": "1",
+    # "2": 只有标题的 markdown 现在会产出一个切片（原来这样的文件被判成空）。
+    # 老索引里那些文档是 empty 状态，靠这个戳在下次 `add` 时被重新解析。
+    "markdown": "2",
     "text": "1",
     "html": "1",
     "docx": "1",
