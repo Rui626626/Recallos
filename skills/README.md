@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1   # Windows
 
 ---
 
-## 手工安装（不想用命令时）
+## 手工安装（不推荐，但说得清楚）
 
 DSH 用「向上找 `.git`，找不到就用当前工作目录」确定项目根，技能放在
 `<项目根>/.dsh/skills/<名字>/SKILL.md`。所以：
@@ -44,12 +44,18 @@ DSH 用「向上找 `.git`，找不到就用当前工作目录」确定项目根
 | 正常 `git clone` 下来的仓库 | **仓库内部**：`<repo>/.dsh/skills/recallos/SKILL.md` |
 | 仓库被放在某个工作区里当子目录（没有 `.git`） | **仓库旁边**：`<那个工作区>/.dsh/skills/recallos/SKILL.md` |
 
+**但不要真的用手复制。** 随包的 `skills/deepseek-harness/SKILL.md` 是**模板**：
+里面那段「本机位置」只有一句兜底说明，没有任何绝对路径。`install-skill` 会在
+安装时把它换成目标机器的真实路径——手工复制出来的副本没有这一段，AI 就不知道
+`recall.py` 在哪，会回答「工具还没装」，然后一直要你给目录。
+
+真发生过，所以别赌。手工复制之后跑一次：
+
 ```bash
-mkdir -p <目标>/.dsh/skills/recallos
-cp skills/deepseek-harness/SKILL.md <目标>/.dsh/skills/recallos/SKILL.md
+python bin/recall.py install-skill --force
 ```
 
-（`install-skill` 算的就是这件事，它还会把其他候选位置列出来给你看。）
+它会把本机路径补进那份副本（正文不动，只刷新那一段）。
 
 ---
 
@@ -58,8 +64,13 @@ cp skills/deepseek-harness/SKILL.md <目标>/.dsh/skills/recallos/SKILL.md
 重启会话后，技能列表里应该出现 `recallos`。也可以直接问：
 
 ```bash
-python bin/recall.py doctor          # #7 会报技能是否被 DSH 发现
+python bin/recall.py doctor
+#   #7 tests+config  报技能是否被 DSH 发现
+#   #8 skill-path    报技能里那条路径还指不指得到 recall.py
 ```
+
+`skill-path` 报 `fail` 就说明技能指向了一个不存在的入口（仓库搬过家，或副本是从
+别的机器拷来的），修复命令是 `install-skill --force`。
 
 如果没出现，最常见的原因是 **frontmatter 丢了或写坏**——`SKILL.md` 必须以这三行开头：
 

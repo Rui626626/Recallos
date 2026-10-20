@@ -7,6 +7,30 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 
 个人 AI 外接大脑。核心命题：**你不必记得自己保存过什么，AI 会在需要时找到相关资料，并帮你用起来。**
 
+<!-- recallos:where:begin -->
+> ⚠️ 这一段本该由 `install-skill` 写入 RecallOS 在**本机**的绝对路径。你看到这句话，
+> 说明这份技能是**手工复制**进来的（`install-skill` 没跑过），所以技能并不知道仓库在哪。
+> 按「第 0 步」的兜底处理，**不要**假装工具存在，也不要让用户去找目录。
+<!-- recallos:where:end -->
+
+## 第 0 步：先确认工具真的在这台机器上（每次会话一次）
+
+用上面**「本机位置」**里给出的那条绝对路径命令，加 `--version` 跑一次：
+
+- 输出 `recallos <版本号>` → 工具在，继续往下走。
+- 报「文件不存在 / No such file / 无法识别」→ **工具没装好**。这时唯一正确的
+  回答是一句话加一条能照抄的命令，而不是让用户去找目录：
+
+  > 「RecallOS 的命令行还没装在这台机器上。两行就能装好：
+  > `git clone https://github.com/Rui626626/Recallos.git`，
+  > 然后 `cd Recallos` 并 `python bin/recall.py install-skill --user`。
+  > 装完告诉我一声。」
+
+**这一条是本项目最贵的教训。** 真实发生过的故障：用户下载之后，AI 读到的是技能
+说明、却找不到 `bin/recall.py`，于是回答「库还没初始化，请给我一个目录」——
+把一个**能修的安装问题**伪装成了**需要用户配合的检索问题**，用户拿到的是
+一个永远不会有结果的追问。所以：**先说清工具在不在，再谈搜什么。**
+
 ## 当前阶段：P5（导入 + 检索 + 对话归档 + 成品汇编 + 长期记忆 + 零设置检索）
 
 | 命令 | 作用 | 状态 |
@@ -25,9 +49,11 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 | `memory remember/list/show/expire/restore/export` | 长期记忆，一个主题一个文件 | ✅ |
 | `install-skill [--user]` | 把随包技能装到 DSH 会扫的位置 | ✅ |
 
-161 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿。
+175 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
 
 ## ⭐ 库是空的时候，不要只会说「请先建库」
+
+**前提：第 0 步已经通过。** 命令跑不通时先修安装，别急着问目录。
 
 这是最容易被忽略、也最影响体验的一条。
 
@@ -49,10 +75,11 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 
 ## 用法
 
+所有命令都用**「本机位置」里那条绝对路径**，不需要 `cd`，也不需要猜仓库在哪。
+下文用 `recall.py` 代指它（实际调用形如 `python "<仓库>/bin/recall.py"`）。
+Windows 上先设一次 `$env:PYTHONIOENCODING="utf-8"`，否则中文输出会乱码。
+
 ```powershell
-# 先进入 RecallOS 的项目目录 —— 就是含 bin/ 与 brain/ 的那个目录。
-# 不确定在哪？本文件所在仓库的根目录就是它；`doctor` 也会把它打印出来。
-$env:PYTHONIOENCODING="utf-8"
 
 python bin/recall.py doctor                       # 先自检
 python bin/recall.py install-skill --user         # 让 DSH 认识它（只需一次）
@@ -122,7 +149,9 @@ python bin\recall.py alias learn                  # 从正文里学「中文（E
 
 ## 通用事实（对所有机器成立）
 
-- **项目根 = 含 `bin/recall.py` 与 `brain/` 的那个目录。** `doctor` 会把它打印出来。
+- **项目根 = 含 `bin/recall.py` 与 `brain/` 的那个目录。** 本机的确切路径写在
+  上面「本机位置」里（`install-skill` 写入）；`doctor` 的第一行也会打印它。
+  技能被复制到技能根之后**已经不在仓库里**，所以「本文件所在目录」不能当仓库用。
 - **Skill 入口放哪**：DSH 用「向上找 `.git`，找不到就用 cwd」确定项目根，技能放在
   `<项目根>/.dsh/skills/<名字>/SKILL.md`。所以：仓库**自己有 `.git`** 时，入口放在
   仓库**内部**；仓库**没有 `.git`** 时，入口放在工作区里、仓库的**旁边**。
@@ -153,10 +182,10 @@ python tests\test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
 python tests\test_p2.py   # 56 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests\test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests\test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
-python tests\test_p5.py   # 28 项  零设置检索 / 技能安装 / 打包不变量
+python tests\test_p5.py   # 42 项  零设置检索 / 技能自定位 / 打包不变量
 ```
 
-共 161 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
+共 175 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
 
 **拼音表怎么来的**：`tools/build_pinyin_table.py`（从 pypinyin 0.55.0 一次性生成，
 结果可复现）。它是随包数据，不是运行时依赖——`brain/data/pinyin.tsv.gz` 删掉就降级。

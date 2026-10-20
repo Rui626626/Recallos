@@ -150,13 +150,18 @@ def run(args: argparse.Namespace) -> int:
         if not counts.get("docs"):
             # 空库不是错误，是一个**还没做第一步**的状态。给出的必须是能直接
             # 照抄的两条路，而不是一句「请先建库」。
+            #
+            # 命令一律写绝对路径：这条提示会出现在任何 cwd 下，`recall.py ...`
+            # 这种写法抄过去就跑不起来 —— 而跑不起来正是「AI 说工具没装」的起点。
+            from .install_skill import entry_path
+            entry = f'"{sys.executable}" "{entry_path()}"'
             print("索引里还没有任何资料。两条路，任选一条：\n"
                   "\n"
                   "  1) 先直接搜一个目录（不建索引，立刻出结果）：\n"
-                  '     recall.py search "你的查询" --in "C:\\某个文件夹"\n'
+                  f'     {entry} search "你的查询" --in "C:\\某个文件夹"\n'
                   "\n"
                   "  2) 先收进来（之后检索更快，且每次都能回查出处）：\n"
-                  '     recall.py add "C:\\某个文件夹"\n'
+                  f'     {entry} add "C:\\某个文件夹"\n'
                   "\n"
                   "两者都不会改动你的原文件。", file=sys.stderr)
             return 2

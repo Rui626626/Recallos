@@ -13,6 +13,9 @@
 # 任何 shell 脚本永远保持 LF，无论谁在什么平台上检出。
 *.sh      text eol=lf
 *.bash    text eol=lf
+# POSIX 启动器没有扩展名，必须单独声明；否则 shebang 里混进一个 CR，
+# /bin/sh 会报 `'\r': not found`。
+bin/recall text eol=lf
 
 # Windows 脚本保持 CRLF（cmd.exe 对 LF 的批处理容错很差）。
 *.cmd     text eol=crlf

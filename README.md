@@ -6,7 +6,7 @@
 **每条结果都带能回查的出处**。
 
 **当前状态：P5 —— 导入 / 检索 / 对话归档 / 成品汇编 / 长期记忆 / 零设置检索，全部可用。**
-161 项黑盒测试。
+175 项黑盒测试。
 
 ---
 
@@ -37,7 +37,13 @@ python bin/recall.py install-skill --user     # 让 AI 认识它，所有工作�
 > 「帮我用这些资料整一份复习材料」
 
 `install-skill` 会算出 DSH 到底会去哪个目录找技能、报告装在哪、怎么撤销。
+**它会把「本机绝对路径」写进装出来的那份技能文件**（模板里当然不含任何机器路径），
+所以 AI 拿到技能后知道该调用哪个 `recall.py`，不需要你告诉它仓库在哪。
+仓库搬家了就重跑一次 `install-skill`：正文不动，只刷新那段路径。
+
 已经装好且内容一致时不改动；内容不同且没加 `--force` 时**拒绝覆盖**（你可能自己改过）。
+如果你是**手工复制** `SKILL.md` 进去的，那份副本里没有本机路径——`doctor` 会报
+`skill-path` 警告，用 `install-skill --force` 重装即可。
 
 Windows 上一行装全套（自检 + 启动器 + 技能）：
 
@@ -53,6 +59,34 @@ bash install.sh
 
 **除了 Python 3.10+ 什么都不需要。** 标准库之外零依赖；`zstandard` 与 `pypdf` 是可选
 增强，没有它们时相关格式会被跳过**并留下一条明确的记录**，不会静默失败。
+
+### 嫌路径长？把它放上 PATH
+
+`bin/` 里有启动器（`recall.cmd` / `recall`），它按自身位置定位仓库，从任何目录都能用：
+
+```powershell
+# Windows：把 bin 加进用户 PATH 之后
+recall search "通货膨胀" --in "$HOME\Documents"
+```
+
+```bash
+# macOS / Linux
+ln -s "$PWD/bin/recall" ~/.local/bin/recall
+```
+
+这不是必须的——技能里那条命令本来就是绝对路径，`PATH` 只是给人省事。
+
+### 如果 AI 说「工具还没装」
+
+先自己跑一次，确认真的是不是工具的问题：
+
+```bash
+python bin/recall.py --version    # 应当输出 recallos 0.7.1
+python bin/recall.py doctor       # 第 8 项 skill-path 看技能指向哪里
+```
+
+- 输出正常 → 工具没问题，那是技能副本里没有本机路径：`install-skill --force`。
+- 输出不存在 → 还没装好，或装了但没跑过 `install-skill`。
 
 ---
 
@@ -169,7 +203,7 @@ recallos/
 │   ├── adapters/          宿主适配层
 │   └── pipeline.py        导入流水线（幂等、可重建）
 ├── tools/                 构建脚本（拼音表生成等）
-├── tests/                 161 项黑盒测试
+├── tests/                 175 项黑盒测试
 ├── docs/                  设计与审查文档
 ├── data/                  权威数据：导入档案 + 长期记忆（默认不入库）
 ├── index/                 SQLite 索引（派生，可删）
@@ -192,7 +226,7 @@ python tests/test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
 python tests/test_p2.py   # 56 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests/test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests/test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
-python tests/test_p5.py   # 28 项  零设置检索 / 技能安装 / 打包不变量
+python tests/test_p5.py   # 42 项  零设置检索 / 技能自定位 / 打包不变量
 ```
 
 全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行，

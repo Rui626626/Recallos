@@ -26,16 +26,140 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 from typing import Optional
 
 from ..adapters import dsh
 
 __all__ = ["register", "run", "SKILL_NAME", "bundled_skill_path",
-           "default_anchor", "existing_install"]
+           "default_anchor", "existing_install", "entry_path", "render_skill",
+           "read_installed_entry", "SkillTemplateError", "ENTRY_MARK",
+           "WHERE_BEGIN", "WHERE_END"]
 
 SKILL_NAME = "recallos"
+
+#: 本机路径块的界标。技能被复制到 `<技能根>/recallos/SKILL.md` 之后，文件已经
+#: **不在仓库里**了 —— 「本文件所在仓库的根目录」这类自述会指向技能目录本身，
+#: 于是 AI 永远找不到 `bin/recall.py`。这就是真实发生过的故障：
+#: 用户下载后 AI 说「只有技能说明，recall.py 工具还没装」，然后把用户挡在门外。
+#:
+#: 修法不是改文案，而是**把绝对路径写进安装出来的那一份**：界标之间的内容在
+#: `install-skill` 时按本机重新渲染，随包的模板里只放一句兜底说明。
+WHERE_BEGIN = "<!-- recallos:where:begin -->"
+WHERE_END = "<!-- recallos:where:end -->"
+
+#: 机器可读的一行，`doctor` 靠它判断「装好的技能指向的路径还在不在」。
+ENTRY_MARK = "<!-- recallos:entry:"
+
+
+class SkillTemplateError(RuntimeError):
+    """随包技能缺少本机路径块的界标 —— 发行包坏了，不能静默照抄。"""
+
+
+def entry_path(repo: str | None = None) -> str:
+    """绝对路径形式的入口脚本。所有提示文案都用它，不再写相对路径。"""
+    return os.path.join(os.path.abspath(repo or repo_dir()), "bin", "recall.py")
+
+
+def _python_cmd() -> str:
+    """按平台给一个能跑的命令名：Windows 上 `python`，POSIX 上通常是 `python3`。"""
+    return "python" if os.name == "nt" else "python3"
+
+
+def render_local_block(repo: str) -> str:
+    """把本机事实渲染成一块 markdown（含界标本身）。
+
+    除了常规的 `python "…"` 写法，还写一条**解释器绝对路径**的兜底：
+    `python` 不在 PATH 上（`py` 启动器、conda、只装了 `python3`）时，
+    前者跑不起来，而跑不起来的后果就是「AI 说工具没装」。
+    """
+    entry = entry_path(repo)
+    py = _python_cmd()
+    lines = [
+        WHERE_BEGIN,
+        f"{ENTRY_MARK} {entry} -->",
+        "## 本机位置（由 `install-skill` 写入，请勿手工编辑）",
+        "",
+        f"- 仓库：`{os.path.abspath(repo)}`",
+        f"- 入口：`{entry}`",
+        "",
+        "从**任何目录**直接这样调用，不要 `cd`、不要猜路径：",
+        "",
+        "```",
+        f'{py} "{entry}" <子命令> "参数"',
+        "```",
+        "",
+        "确认工具真的在（输出 `recallos <版本号>` 就对了）：",
+        "",
+        "```",
+        f'{py} "{entry}" --version',
+        "```",
+        "",
+        "上面那条报「python 不是内部或外部命令 / command not found」时，"
+        "用这个解释器的完整路径（安装它的那个）：",
+        "",
+        "```",
+        f'"{sys.executable}" "{entry}" --version',
+        "```",
+        WHERE_END,
+    ]
+    return "\n".join(lines)
+
+
+def _split_block(text: str) -> Optional[tuple[str, str]]:
+    """返回本机块之外的 `(之前, 之后)`；没有界标则返回 None。"""
+    begin = text.find(WHERE_BEGIN)
+    end = text.find(WHERE_END)
+    if begin < 0 or end < 0 or end < begin:
+        return None
+    return text[:begin], text[end + len(WHERE_END):]
+
+
+def render_skill(text: str, repo: str) -> str:
+    """把模板里的本机块换成这台机器的事实。
+
+    幂等：对已经渲染过的文本、同一个 repo 再渲染一次，结果逐字节相同。
+    """
+    parts = _split_block(text)
+    if parts is None:
+        raise SkillTemplateError(
+            "SKILL.md 里找不到本机路径块的界标 "
+            f"({WHERE_BEGIN} / {WHERE_END})；发行包不完整")
+    before, after = parts
+    return before + render_local_block(repo) + after
+
+
+def read_installed_entry(skill_md: str) -> Optional[str]:
+    """从装好的技能里读回它声称的入口路径。"""
+    end = skill_md.find("-->", skill_md.find(ENTRY_MARK))
+    if end < 0:
+        return None
+    value = skill_md[skill_md.find(ENTRY_MARK) + len(ENTRY_MARK):end].strip()
+    return value or None
+
+
+def _decide(existing: str, rendered: str) -> tuple[str, str]:
+    """判断该不该写，以及怎么写。返回 `(status, action)`。
+
+    `action` 表达的是「**如果允许**，应该写还是跳过」；「不许写」由调用方根据
+    `--force` 把 `write` 降级成 `refused`。曾经这里直接返回 `refused`，结果
+    `--force` 永远不起作用 —— 用户被卡在一个自己无法越过的拒绝里。
+
+    * 逐字节相同 → 不动。
+    * 正文相同、只有本机块不同（仓库搬家了，或者副本是本机块还没填的模板）
+      → **静默更新**，这不算用户改动。
+    * 没有本机块 → 老版本装出来的副本 / 从别处拷来的旧文件，要 `--force`。
+    * 其余 → 需要 `--force`。用户可能自己改过技能。
+    """
+    if existing == rendered:
+        return "up-to-date", "skip"
+    existing_parts = _split_block(existing)
+    rendered_parts = _split_block(rendered)
+    if existing_parts is None:
+        return "needs-local-block", "write"
+    if existing_parts == rendered_parts:
+        return "refreshed", "write"
+    return "differs", "write"
 
 
 def bundled_skill_path() -> str:
@@ -97,7 +221,10 @@ def existing_install(repo: str | None = None) -> Optional[tuple[str, str, str]]:
 
 
 def _read(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as fh:
+    # `utf-8-sig`：Windows 上的编辑器（含 PowerShell 5.1 的 `Set-Content`）默认会
+    # 写一个 UTF-8 BOM。带着 BOM 读进来，正文第一个字符就变成 `\ufeff`，
+    # 于是「逐字节相同」永远不成立 —— 用户什么都没改却被告知「内容不同」。
+    with open(path, "r", encoding="utf-8-sig") as fh:
         return fh.read()
 
 
@@ -120,6 +247,11 @@ def run(args: argparse.Namespace) -> int:
     if not os.path.isfile(source):
         print(f"随包的技能文件不存在：{source}\n"
               "（发行包里应当有 skills/deepseek-harness/SKILL.md）", file=sys.stderr)
+        return 2
+    try:
+        rendered = render_skill(_read(source), repo_dir())
+    except SkillTemplateError as exc:
+        print(f"技能模板不可用：{exc}", file=sys.stderr)
         return 2
 
     anchor, anchor_reason = default_anchor()
@@ -146,19 +278,19 @@ def run(args: argparse.Namespace) -> int:
             chosen_source = "project"
 
     existed = os.path.isfile(target)
-    same = existed and _read(target) == _read(source)
-
-    if existed and same:
-        status = "up-to-date"
-        action = "skip"
-    elif existed and not args.force:
-        status = "differs"
-        action = "refused"
+    existing_text = _read(target) if existed else ""
+    if existed:
+        status, action = _decide(existing_text, rendered)
+        if action == "write" and status in ("differs", "needs-local-block") \
+                and not args.force:
+            action = "refused"
     else:
-        status = "installed"
-        action = "write"
+        status, action = "installed", "write"
+
+    if action == "write":
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copyfile(source, target)
+        with open(target, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(rendered)
 
     payload = {
         "source": source,
@@ -171,7 +303,9 @@ def run(args: argparse.Namespace) -> int:
         "status": status,
         "action": action,
         "existed": existed,
-        "identical": bool(same),
+        "identical": bool(existed and existing_text == rendered),
+        "entry": entry_path(),
+        "python": _python_cmd(),
         "other_roots": [{"path": p, "source": s} for p, s in candidates],
     }
 
@@ -185,18 +319,29 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if action == "refused":
-        print(f"目标位置已经有一个**内容不同**的 SKILL.md：\n  {target}\n")
-        print("这可能是你自己改过的版本。为免覆盖你的改动，这里不写入。")
-        print("确认要覆盖就加 --force；想换个位置用 --to <目录>。")
+        if status == "needs-local-block":
+            print(f"目标位置那份 SKILL.md 没有「本机位置」块：\n  {target}\n")
+            print("说明它不是由 install-skill 写的（老版本副本或手工复制）——")
+            print("这类副本里没有绝对路径，AI 会找不到 recall.py。")
+            print("加 --force 重新生成一份带本机路径的技能。")
+        else:
+            print(f"目标位置已经有一个**内容不同**的 SKILL.md：\n  {target}\n")
+            print("这可能是你自己改过的版本。为免覆盖你的改动，这里不写入。")
+            print("确认要覆盖就加 --force；想换个位置用 --to <目录>。")
         return 1
 
-    print("技能已安装。")
+    headline = {
+        "installed": "技能已安装。",
+        "refreshed": "已就地更新技能里的本机路径（正文没有改动）。",
+    }.get(status, "技能已安装。")
+    print(headline)
     print(f"  来源    {source}")
     print(f"  目标    {target}")
     scope_label = {"project": "项目级（只在这个工作区生效）",
                    "user": "用户级（所有项目都能用）",
                    "explicit": "你指定的位置"}[chosen_source]
     print(f"  范围    {scope_label}")
+    print(f"  入口    {payload['python']} \"{payload['entry']}\"")
     print(f"  撤销    删除 {target}")
 
     other = [(p, s) for p, s in candidates
@@ -205,7 +350,8 @@ def run(args: argparse.Namespace) -> int:
         print("\n  DSH 还会去这些地方找技能（当前没装）：")
         for path, src in other[:3]:
             print(f"    [{src}] {path}")
-        print("  想让所有项目都能用：recall.py install-skill --user")
+        print(f'  想让所有项目都能用：{payload["python"]} "{entry_path()}" '
+              "install-skill --user")
 
     print("\n  下一步：重启会话（或等宿主重新扫描技能目录），"
           "之后技能列表里应当出现 recallos。")

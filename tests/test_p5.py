@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -292,6 +293,110 @@ class TestInstallSkill(unittest.TestCase):
         self.assertIn("删除", out)
 
 
+class TestInstalledSkillIsSelfLocating(unittest.TestCase):
+    """回归：技能装出去之后，AI 还找得到 `recall.py` 吗？
+
+    真实故障：用户下载之后，AI 读到技能说明却找不到命令行，于是回答
+    「只有技能说明，`recall.py` 工具和索引库都还没装」，然后一直要用户给目录。
+    而工具其实装好了、模糊检索完全可用 —— 它只是**不知道仓库在哪**。
+
+    根因有两层，两层都要钉住：
+
+    1. `install-skill` 只是把 SKILL.md 原样复制，副本里没有任何绝对路径；
+    2. 副本离开仓库后，「本文件所在仓库的根目录」指向技能目录本身，是句假话。
+
+    所以这里断言**行为**：照技能里那条命令、从一个毫不相干的目录跑，必须真出结果。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="recallos-p5-locate-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.root = os.path.join(self.tmp, "data-root")
+        os.makedirs(self.root, exist_ok=True)
+        self.target_root = os.path.join(self.tmp, "skills")
+        self.installed = os.path.join(self.target_root, "recallos", "SKILL.md")
+
+    def _install(self, *extra: str) -> dict:
+        return cli_json(self.root, "install-skill", "--to", self.target_root, *extra)
+
+    def _text(self) -> str:
+        with open(self.installed, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_installed_skill_records_the_absolute_entry_path(self):
+        """技能里必须写着本机入口的**绝对路径**，而且那条路径真的存在。"""
+        payload = self._install()
+        self.assertEqual(payload["target"], self.installed)
+        text = self._text()
+        entry = install_skill.entry_path()
+        self.assertIn(entry, text, "装好的技能里没有本机入口的绝对路径")
+        self.assertTrue(os.path.isfile(entry))
+
+    def test_the_command_in_the_skill_runs_from_any_directory(self):
+        """照技能里那条命令、从无关目录跑一次 —— 这是用户真正经历的路径。"""
+        self._install()
+        text = self._text()
+        found = re.findall(r'python3? "([^"]*bin[\\/]recall\.py)"', text)
+        self.assertTrue(found, "技能里没有一条可直接照抄的绝对路径命令")
+        entry = found[0]
+        proc = subprocess.run([sys.executable, entry, "--version"],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", cwd=self.tmp)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("recallos", proc.stdout)
+
+    def test_no_claim_that_the_file_lives_in_the_repository(self):
+        """副本已经不在仓库里了，所以「本文件所在仓库的根目录」必须消失。"""
+        self._install()
+        text = self._text()
+        self.assertNotIn("本文件所在仓库的根目录就是它", text)
+        self.assertIn(install_skill.ENTRY_MARK, text)
+        self.assertIn("不要 `cd`", text)
+
+    def test_reinstall_refreshes_a_stale_path(self):
+        """仓库搬过家：正文没动，只更新本机块，且**不需要 --force**。"""
+        self._install()
+        stale = os.path.join(self.tmp, "搬走了", "bin", "recall.py")
+        text = self._text().replace(install_skill.entry_path(), stale)
+        with open(self.installed, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        payload = self._install()
+        self.assertEqual(payload["status"], "refreshed")
+        self.assertEqual(payload["action"], "write")
+        self.assertNotIn(stale, self._text())
+        self.assertIn(install_skill.entry_path(), self._text())
+
+    def test_legacy_copy_needs_force_and_says_why(self):
+        """老版本装出来的副本没有本机块：必须拒绝，并说清加什么参数。"""
+        os.makedirs(os.path.dirname(self.installed), exist_ok=True)
+        with open(self.installed, "w", encoding="utf-8") as fh:
+            fh.write("---\nname: recallos\ndescription: 老副本\n---\n\n# RecallOS\n")
+        proc = run_cli(self.root, "install-skill", "--to", self.target_root, expect=1)
+        self.assertIn("--force", proc.stdout + proc.stderr)
+        self.assertIn("本机路径", proc.stdout + proc.stderr)
+        payload = self._install("--force")
+        self.assertEqual(payload["action"], "write")
+        self.assertIn(install_skill.entry_path(), self._text())
+
+    def test_doctor_catches_a_skill_pointing_at_nothing(self):
+        """技能指着一个不存在的入口时，`doctor` 必须喊出来 —— 而不是等用户撞上。"""
+        workspace = os.path.join(self.tmp, "ws")
+        entry_dir = os.path.join(workspace, ".dsh", "skills", "recallos")
+        os.makedirs(entry_dir, exist_ok=True)
+        ghost = os.path.join(workspace, "moved", "bin", "recall.py")
+        with open(os.path.join(entry_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nname: recallos\ndescription: x\n---\n"
+                     f"{install_skill.WHERE_BEGIN}\n"
+                     f"{install_skill.ENTRY_MARK} {ghost} -->\n"
+                     f"{install_skill.WHERE_END}\n")
+        data_root = os.path.join(workspace, "data-root")
+        payload = cli_json(data_root, "doctor", expect=1)
+        check = next(c for c in payload["checks"] if c["name"] == "skill-path")
+        self.assertEqual(check["status"], "fail")
+        self.assertIn(ghost, check["detail"])
+        self.assertIn("install-skill", check["hint"])
+
+
 class TestAnchorSelection(unittest.TestCase):
     """技能装在哪：锚点推断 + 「绝不放第二份」。
 
@@ -360,6 +465,39 @@ class TestPackagingInvariants(unittest.TestCase):
         self.assertEqual(data.count(b"\r"), 0,
                          "install.sh 必须纯 LF；一个 CR 就让 /bin/sh 报 "
                          "'\\r': not found")
+
+    def test_posix_launcher_is_pure_lf_and_self_locating(self):
+        """`bin/recall` 没有扩展名，换行符不会自动被 `.gitattributes` 的 *.sh 规则管到。
+
+        一个 CR 就会让 `/bin/sh` 报 `'\r': not found`，而且只在别人 clone 出来时
+        才暴露 —— 本地跑测试看到的是工作区里的那份。
+        """
+        path = os.path.join(PROJECT, "bin", "recall")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        self.assertEqual(data.count(b"\r"), 0, "bin/recall 必须纯 LF")
+        self.assertTrue(data.startswith(b"#!/bin/sh"), "必须有可执行的 shebang")
+        self.assertIn(b'dirname -- "$0"', data, "必须按自身位置定位仓库")
+
+    def test_windows_launcher_uses_its_own_directory(self):
+        """`%~dp0` 是唯一能在任意 cwd 下正确解析仓库位置的写法。"""
+        path = os.path.join(PROJECT, "bin", "recall.cmd")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        self.assertIn(b"\r\n", data, "cmd 脚本必须 CRLF")
+        self.assertIn(b"%~dp0recall.py", data)
+
+    def test_bundled_skill_template_is_renderable_and_idempotent(self):
+        """模板必须带界标，渲染两次结果一致 —— 否则每次安装都会「内容不同」。"""
+        with open(os.path.join(PROJECT, "skills", "deepseek-harness", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            template = fh.read()
+        self.assertIn(install_skill.WHERE_BEGIN, template)
+        self.assertIn(install_skill.WHERE_END, template)
+        rendered = install_skill.render_skill(template, os.path.join(PROJECT, "x"))
+        self.assertEqual(rendered, install_skill.render_skill(rendered,
+                                                              os.path.join(PROJECT, "x")))
+        self.assertIn(os.path.join(PROJECT, "x", "bin", "recall.py"), rendered)
 
     def test_install_ps1_has_a_utf8_bom(self):
         path = os.path.join(PROJECT, "install.ps1")

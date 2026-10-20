@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 
 from ..config import CONFIG_NAME, load_config, project_root
 
@@ -121,5 +122,7 @@ def run(args: argparse.Namespace) -> int:
     if not config_ok:
         print(f"  ! {CONFIG_NAME} is not readable: {config_error}")
         return 1
-    print("\nnext: python recallos/bin/recall.py doctor")
+    # 提示里给绝对路径：`init` 可以在任意 cwd 里跑，相对路径抄过去就是错的。
+    from .install_skill import entry_path
+    print(f'\nnext: "{sys.executable}" "{entry_path()}" doctor')
     return 0

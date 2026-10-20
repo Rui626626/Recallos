@@ -29,13 +29,25 @@ from typing import Any
 from ..config import CONFIG_NAME, load_config, project_root
 from ..core.schema import SCHEMA_VERSION, read_version
 from .init import REQUIRED_DIRS
+from .install_skill import ENTRY_MARK, entry_path, read_installed_entry
 
 __all__ = ["register", "run", "collect", "Check"]
 
 #: 要求的目录清单**只有一个来源**：`init.REQUIRED_DIRS`。
 #: 曾经这里复制过一份，结果改了一边忘另一边，`doctor` 报「6 个目录」而 `init`
 #: 实际建 8 个——两个数字各自看着都对，加起来就是错的。
-CONFIG_HINT = "run: python recallos/bin/recall.py init"
+#
+#: 提示里的命令必须写**绝对路径**：`python recallos/bin/recall.py` 这种相对写法
+#: 只在「cwd 恰好是仓库父目录」时成立，而 `doctor` 正是被拿来排查「它到底在哪」
+#: 的工具——让排查工具自己给出一个猜出来的相对路径，等于把问题还回去。
+def _invocation(sub: str = "") -> str:
+    parts = [sys.executable, entry_path()]
+    if sub:
+        parts.append(sub)
+    return "run: " + " ".join(f'"{p}"' for p in parts)
+
+
+CONFIG_HINT = _invocation("init")
 
 PASS, WARN, FAIL, TODO, SKIP = "pass", "warn", "fail", "todo", "skip"
 
@@ -248,7 +260,8 @@ def _check_tests_and_config(cfg) -> Check:
         return Check(
             "tests+config", "7", WARN, "; ".join(good),
             "optional: the command line works without it. To let DSH find the "
-            f"Skill, copy skills/deepseek-harness/SKILL.md to {targets[0]}")
+            "Skill, install it (do NOT copy the file by hand — a hand copy has "
+            f"no absolute path in it): {_invocation('install-skill --user')}")
     return Check("tests+config", "7", PASS, "; ".join(good))
 
 
@@ -292,6 +305,50 @@ def _check_p1_layer(cfg) -> Check:
     return Check("p1-ingest", "-", PASS, detail)
 
 
+def _check_skill_wiring(cfg) -> Check:
+    """装进 DSH 的技能，里面那条本机路径还指得着吗？
+
+    这个检查是为一次**真实故障**写的，不是为了好看：
+
+        install-skill 曾经只是把 SKILL.md 原样复制到技能根。技能一旦离开仓库，
+        文件里那些相对路径（`python bin/recall.py`）就没有上下文了，AI 也读不到
+        任何绝对路径 —— 于是它回答「只有技能说明，recall.py 工具还没装」，
+        然后把用户挡在门外，让用户去找目录。工具明明装好了、模糊检索明明能用。
+
+    现在安装时会把绝对路径写进副本，所以这里的职责是：**路径失效就立刻喊出来**，
+    而不是等下一个用户在对话框里被告知「请先建库」。
+
+    没装技能是 SKIP：命令行本身不依赖它，那不是错误。
+    """
+    installed = next((p for p in _skill_entry_paths(cfg) if os.path.isfile(p)), None)
+    if not installed:
+        return Check("skill-path", "8", SKIP, "技能还没装进 DSH（可选）")
+
+    try:
+        with open(installed, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return Check("skill-path", "8", WARN, f"读不了 {installed}: {exc}",
+                     _invocation("install-skill --force"))
+
+    declared = read_installed_entry(text)
+    if ENTRY_MARK not in text or not declared:
+        return Check(
+            "skill-path", "8", WARN,
+            f"{installed} 里没有本机路径 —— 它是手工复制或老版本装出来的",
+            _invocation("install-skill --force") +
+            "\n               （这类副本里没有绝对路径，AI 会找不到 recall.py）")
+
+    if not os.path.isfile(declared):
+        return Check(
+            "skill-path", "8", FAIL,
+            f"技能指向的入口已经不存在：{declared}",
+            _invocation("install-skill --force") +
+            "\n               （仓库搬过家，或技能是从别的机器复制来的）")
+
+    return Check("skill-path", "8", PASS, f"技能指向 {declared}")
+
+
 def collect(cfg) -> list[Check]:
     """Run every check. Order follows the numbered P0 requirements."""
     return [
@@ -302,6 +359,7 @@ def collect(cfg) -> list[Check]:
         _check_index_absent(cfg),
         _check_index_open(cfg),
         _check_tests_and_config(cfg),
+        _check_skill_wiring(cfg),
         _check_p1_layer(cfg),
     ]
 

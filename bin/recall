@@ -1,0 +1,14 @@
+#!/bin/sh
+# RecallOS launcher (POSIX).
+#
+# Why this file exists: the Skill can only tell an AI *where* RecallOS lives if
+# something stable exists to call. Resolving the script's own directory keeps
+# this working from any cwd and survives the repo moving. Symlinking it into a
+# directory on PATH (`ln -s .../bin/recall ~/.local/bin/recall`) makes
+# `recall search ...` work everywhere.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export PYTHONIOENCODING=utf-8
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 "$dir/recall.py" "$@"
+fi
+exec python "$dir/recall.py" "$@"
