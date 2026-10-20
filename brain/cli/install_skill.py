@@ -33,7 +33,7 @@ from ..adapters import dsh
 
 __all__ = ["register", "run", "SKILL_NAME", "bundled_skill_path",
            "default_anchor", "existing_install", "entry_path", "render_skill",
-           "read_installed_entry", "SkillTemplateError", "ENTRY_MARK",
+           "read_installed_entry", "body_of", "SkillTemplateError", "ENTRY_MARK",
            "WHERE_BEGIN", "WHERE_END"]
 
 SKILL_NAME = "recallos"
@@ -136,6 +136,19 @@ def read_installed_entry(skill_md: str) -> Optional[str]:
         return None
     value = skill_md[skill_md.find(ENTRY_MARK) + len(ENTRY_MARK):end].strip()
     return value or None
+
+
+def body_of(text: str) -> str:
+    """本机块之外的正文。
+
+    用途：判断「内容不同」到底是**换了一台机器**（只有块不同）还是
+    **版本不同**（正文也不同）。`doctor` 靠它判断装好的技能是不是旧版本 ——
+    `git pull` 不会更新那份副本，没有这个检查就没有任何信号。
+    """
+    parts = _split_block(text)
+    if parts is None:
+        return text
+    return parts[0] + parts[1]
 
 
 def _decide(existing: str, rendered: str) -> tuple[str, str]:

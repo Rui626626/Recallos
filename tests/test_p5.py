@@ -523,6 +523,31 @@ class TestInstalledSkillIsSelfLocating(unittest.TestCase):
         self.assertEqual(payload["action"], "write")
         self.assertIn(install_skill.entry_path(), self._text())
 
+    def test_doctor_warns_when_the_installed_skill_is_old(self):
+        """`git pull` 只更新仓库，装好的副本不动 —— 必须有个地方提醒升级。
+
+        没有这个提醒，用户会一直用着旧技能而毫无察觉，而「技能写了什么」
+        恰恰决定 AI 会不会又去问「文件在哪个文件夹」。
+        """
+        workspace = os.path.join(self.tmp, "ws2")
+        entry_dir = os.path.join(workspace, ".dsh", "skills", "recallos")
+        os.makedirs(entry_dir, exist_ok=True)
+        with open(os.path.join(PROJECT, "skills", "deepseek-harness", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            template = fh.read()
+        rendered = install_skill.render_skill(template, PROJECT)
+        stale = rendered.replace("第 0 步", "旧版本里的小标题")
+        with open(os.path.join(entry_dir, "SKILL.md"), "w", encoding="utf-8",
+                  newline="\n") as fh:
+            fh.write(stale)
+
+        data_root = os.path.join(workspace, "data-root")
+        payload = cli_json(data_root, "doctor", expect=None)
+        check = next(c for c in payload["checks"] if c["name"] == "skill-path")
+        self.assertEqual(check["status"], "warn")
+        self.assertIn("旧版本", check["detail"])
+        self.assertIn("install-skill --force", check["hint"].replace("\n", " "))
+
     def test_doctor_catches_a_skill_pointing_at_nothing(self):
         """技能指着一个不存在的入口时，`doctor` 必须喊出来 —— 而不是等用户撞上。"""
         workspace = os.path.join(self.tmp, "ws")

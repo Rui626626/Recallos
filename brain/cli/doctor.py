@@ -29,7 +29,8 @@ from typing import Any
 from ..config import CONFIG_NAME, load_config, project_root
 from ..core.schema import SCHEMA_VERSION, read_version
 from .init import REQUIRED_DIRS
-from .install_skill import ENTRY_MARK, entry_path, read_installed_entry
+from .install_skill import (ENTRY_MARK, body_of, bundled_skill_path, entry_path,
+                            read_installed_entry, render_skill, repo_dir)
 
 __all__ = ["register", "run", "collect", "Check"]
 
@@ -305,6 +306,12 @@ def _check_p1_layer(cfg) -> Check:
     return Check("p1-ingest", "-", PASS, detail)
 
 
+def _read_text(path: str) -> str:
+    """读文本。`utf-8-sig`：Windows 编辑器常带 BOM，别让它混进比较。"""
+    with open(path, "r", encoding="utf-8-sig") as fh:
+        return fh.read()
+
+
 def _check_skill_wiring(cfg) -> Check:
     """装进 DSH 的技能，里面那条本机路径还指得着吗？
 
@@ -325,8 +332,7 @@ def _check_skill_wiring(cfg) -> Check:
         return Check("skill-path", "8", SKIP, "技能还没装进 DSH（可选）")
 
     try:
-        with open(installed, "r", encoding="utf-8") as fh:
-            text = fh.read()
+        text = _read_text(installed)
     except OSError as exc:
         return Check("skill-path", "8", WARN, f"读不了 {installed}: {exc}",
                      _invocation("install-skill --force"))
@@ -345,6 +351,22 @@ def _check_skill_wiring(cfg) -> Check:
             f"技能指向的入口已经不存在：{declared}",
             _invocation("install-skill --force") +
             "\n               （仓库搬过家，或技能是从别的机器复制来的）")
+
+    # 路径还在，但正文可能是**旧版本**。`git pull` 只更新仓库，装好的那份副本
+    # 不会被改动 —— 没有这个检查，用户会一直用着旧技能而毫无察觉，
+    # 而「技能说了什么」恰恰决定 AI 会不会又去问路径。
+    bundled = bundled_skill_path()
+    if os.path.isfile(bundled):
+        try:
+            latest = render_skill(_read_text(bundled), repo_dir())
+        except Exception:                     # 模板坏了由 check #7 报，这里不重复
+            latest = None
+        if latest is not None and body_of(text) != body_of(latest):
+            return Check(
+                "skill-path", "8", WARN,
+                f"技能是旧版本（随包的 SKILL.md 已更新）：{installed}",
+                _invocation("install-skill --force") +
+                "\n               （升级只重写这份 SKILL.md，不碰资料库/索引/记忆）")
 
     return Check("skill-path", "8", PASS, f"技能指向 {declared}")
 
