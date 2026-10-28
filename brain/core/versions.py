@@ -46,6 +46,7 @@ EXTRACTORS: Final[dict[str, str]] = {
     "pptx": "1",
     "xlsx": "1",
     "pdf": "1",
+    "csv": "1",
 }
 
 

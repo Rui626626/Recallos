@@ -520,5 +520,52 @@ class TestSafety(P1Base):
             self.assertEqual(check["status"], "pass", check)
 
 
+class TestExtensionCoverage(unittest.TestCase):
+    """「有解析器但永远不会被扫到」是一类静默丢失，必须被守住。
+
+    真实发生过：`.log` / `.mdx` / `.xhtml` / `.xlsm` 早就注册了解析器，但
+    `DEFAULT_EXTENSIONS` 里没有它们 —— 于是这些文件既不会被扫描，也不会报错，
+    用户看到的就是「我明明有这份文件，工具说没有」。
+    """
+
+    def test_every_registered_extension_is_scanned_by_default(self):
+        from brain.config import DEFAULT_EXTENSIONS
+        from brain.ingest.base import supported_extensions
+
+        scanned = {e.lower() for e in DEFAULT_EXTENSIONS}
+        registered = set(supported_extensions())
+        missing = sorted(registered - scanned)
+        self.assertEqual(missing, [],
+                         "这些扩展名有解析器却不在 DEFAULT_EXTENSIONS 里，"
+                         "永远不会被扫描到：" + ", ".join(missing))
+
+
+class TestCsvIngest(unittest.TestCase):
+    """CSV 是高频格式：表格单元格必须能被搜到，且摘录要像表格而不是一串逗号。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="recallos-p1-csv-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.root = os.path.join(self.tmp, "data-root")
+        self.src = os.path.join(self.tmp, "资料")
+        os.makedirs(self.src, exist_ok=True)
+        with open(os.path.join(self.src, "预算.csv"), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write("科目,金额\n研发预算,1200000\n市场投放,300000\n")
+
+    def test_csv_cells_are_searchable(self):
+        run_cli(self.root, "add", self.src)
+        payload = cli_json(self.root, "search", "研发预算")
+        self.assertTrue(payload["hits"], "CSV 里的中文单元格应当可搜")
+        hit = payload["hits"][0]
+        self.assertTrue(hit["source_ref"].endswith("预算.csv"))
+        # 单元格用 " | " 连接，摘录里应当看得到分隔符而不是原始逗号
+        self.assertIn(" | ", hit["snippet"])
+
+    def test_csv_is_reported_as_a_supported_format(self):
+        from brain.ingest.base import supported_extensions
+        self.assertIn(".csv", supported_extensions())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -6,7 +6,7 @@
 **每条结果都带能回查的出处**。
 
 **当前状态：P5 —— 导入 / 检索 / 对话归档 / 成品汇编 / 长期记忆 / 零设置检索，全部可用。**
-194 项黑盒测试。
+197 项黑盒测试。
 
 ---
 
@@ -109,7 +109,7 @@ python bin/recall.py doctor       # 第 8 项 skill-path 看技能指向哪里
 |---|---|
 | `init` | 创建目录骨架（幂等，绝不覆盖已有文件） |
 | `doctor` | 自检：Python、SQLite/FTS5、目录读写、索引状态、配置、导入层可用格式 |
-| `add <路径...>` | 导入 Markdown / TXT / HTML / Word / PPT / Excel / PDF —— **只读** |
+| `add <路径...>` | 导入 Markdown / TXT / 日志 / HTML / CSV·TSV / Word / PPT / Excel / PDF —— **只读** |
 | `archive <路径...>` | 把对话记录（DSH 会话、通用 JSONL/JSON 导出）转成可检索档案 |
 | `index --stats` | 查看统计与完整性 |
 | `index --rebuild [--from-source]` | 原子重建索引（失败不动原索引） |
@@ -219,7 +219,7 @@ recallos/
 │   ├── adapters/          宿主适配层
 │   └── pipeline.py        导入流水线（幂等、可重建）
 ├── tools/                 构建脚本（拼音表生成等）
-├── tests/                 194 项黑盒测试
+├── tests/                 197 项黑盒测试
 ├── docs/                  设计与审查文档
 ├── data/                  权威数据：导入档案 + 长期记忆（默认不入库）
 ├── index/                 SQLite 索引（派生，可删）
@@ -238,7 +238,7 @@ recallos/
 
 ```bash
 python tests/test_p0.py   # 17 项  骨架 / 自检 / 索引基础
-python tests/test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
+python tests/test_p1.py   # 19 项  导入 / 更新 / 改名 / 失败 / 重建 / 扩展名覆盖
 python tests/test_p2.py   # 61 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests/test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests/test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆

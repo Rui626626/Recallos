@@ -43,7 +43,7 @@ from brain.cli import scope as scope_cli    # noqa: E402
 from brain.cli import search as search_cli  # noqa: E402
 from brain.cli import verify as verify_cli  # noqa: E402
 
-__version__ = "0.7.3"
+__version__ = "0.7.4"
 
 _COMMANDS = (init_cli, doctor_cli, scope_cli, add_cli, index_cli, search_cli,
              alias_cli, archive_cli, compose_cli, verify_cli, memory_cli,

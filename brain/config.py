@@ -16,10 +16,15 @@ __all__ = ["Config", "load_config", "project_root", "CONFIG_NAME"]
 
 CONFIG_NAME = "brain.config.json"
 
+# 这份清单必须覆盖 `brain/ingest` 里**每一个已注册的扩展名**。
+#
+# 踩过的坑：`.log` / `.mdx` / `.xhtml` / `.xlsm` 早就写了解析器，但从来没进过
+# 这份清单 —— 于是它们有解析能力却永远不会被扫到，用户看到的是「这个文件不存在」。
+# `tests/test_p1.py::TestExtensionCoverage` 现在守着这条：注册了就必须被扫。
 DEFAULT_EXTENSIONS = (
-    ".md", ".markdown", ".txt", ".text",
-    ".docx", ".pptx", ".xlsx",
-    ".pdf", ".html", ".htm",
+    ".md", ".markdown", ".mdx", ".txt", ".text", ".log", ".csv", ".tsv",
+    ".docx", ".pptx", ".xlsx", ".xlsm",
+    ".pdf", ".html", ".htm", ".xhtml",
 )
 
 DEFAULT_EXCLUDES = (

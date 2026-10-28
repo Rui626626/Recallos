@@ -37,7 +37,7 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 |---|---|---|
 | `init` | 创建目录骨架（幂等，绝不覆盖已有文件） | ✅ |
 | `doctor` | 自检目录、Python、SQLite/FTS5、数据目录读写、索引、测试与配置、导入层格式 | ✅ |
-| `add <路径...>` | 导入 Markdown / TXT / HTML / Word / PPT / Excel / PDF | ✅ |
+| `add <路径...>` | 导入 Markdown / TXT / 日志 / HTML / CSV·TSV / Word / PPT / Excel / PDF | ✅ |
 | `archive <路径...>` | 对话记录（DSH 会话 `.jsonl.zstd`、通用 JSONL/JSON）转成可检索档案 | ✅ |
 | `index --stats` | 查看统计与完整性 | ✅ |
 | `index --rebuild [--from-source]` | 从档案（或原文件）原子重建索引 | ✅ |
@@ -50,7 +50,7 @@ description: RecallOS 个人外接大脑——找回你保存过的资料、笔�
 | `memory remember/list/show/expire/restore/export` | 长期记忆，一个主题一个文件 | ✅ |
 | `install-skill [--user]` | 把随包技能装到 DSH 会扫的位置 | ✅ |
 
-194 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
+197 项黑盒测试（`tests/test_p0..p5.py`），`doctor` 全绿（8 项）。
 
 ## ⭐ 检索范围：问一次、记住，之后一句话就搜
 
@@ -207,14 +207,14 @@ python "<入口>" alias learn                  # 从正文里学「中文（Engl
 
 ```powershell
 python tests\test_p0.py   # 17 项  骨架 / 自检 / 索引基础
-python tests\test_p1.py   # 16 项  导入 / 更新 / 改名 / 失败 / 重建
+python tests\test_p1.py   # 19 项  导入 / 更新 / 改名 / 失败 / 重建 / 扩展名覆盖
 python tests\test_p2.py   # 61 项  检索 / 模糊 / 别名 / 拼音 / 预算 / 标题可搜
 python tests\test_p3.py   # 19 项  对话归档 / 多帧 zstd / 失败留痕
 python tests\test_p4.py   # 25 项  成品汇编 / 出处回查 / 长期记忆
 python tests\test_p5.py   # 56 项  零设置检索 / 技能自定位 / 打包不变量
 ```
 
-共 194 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
+共 197 项，全部是黑盒：驱动真实命令行、在临时项目根里跑、断言真实文件与数据库行、不 mock 被测代码。
 
 **拼音表怎么来的**：`tools/build_pinyin_table.py`（从 pypinyin 0.55.0 一次性生成，
 结果可复现）。它是随包数据，不是运行时依赖——`brain/data/pinyin.tsv.gz` 删掉就降级。

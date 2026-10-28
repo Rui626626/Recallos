@@ -12,6 +12,7 @@ empty file is a caller-level decision — the pipeline turns it into a
 
 from __future__ import annotations
 
+import csv
 import os
 import re
 from html.parser import HTMLParser
@@ -106,6 +107,32 @@ def parse_markdown(path: str) -> ParsedDoc:
 
     return ParsedDoc(title=title, segments=segments, extractor="markdown",
                      meta={"encoding": enc})
+
+
+@register(".csv", ".tsv")
+def parse_csv(path: str) -> ParsedDoc:
+    """CSV/TSV：一行一个切片，单元格用 ` | ` 连接。
+
+    为什么不直接当纯文本读：纯文本出来是 `a,b,c`，搜「研发预算」命中后摘录里
+    全是逗号，读起来不像表格。按行连成 `科目 | 金额 | 研发预算` 既可检索，
+    也能原样当结论引用。分隔符用 `csv.Sniffer` 嗅探（逗号/制表符/分号）。
+    """
+    raw, enc = read_text_file(path)
+    rows: list[str] = []
+    try:
+        dialect = csv.Sniffer().sniff(raw[:4096], delimiters=",\t;")
+    except csv.Error:
+        dialect = csv.excel
+    for row in csv.reader(raw.splitlines(), dialect):
+        cell = " | ".join(c.strip() for c in row if c and c.strip())
+        if cell:
+            rows.append(cell)
+    return ParsedDoc(
+        title=os.path.splitext(os.path.basename(path))[0],
+        segments=[Segment(r) for r in rows],
+        extractor="csv",
+        meta={"encoding": enc, "rows": len(rows)},
+    )
 
 
 class _TextExtractor(HTMLParser):
