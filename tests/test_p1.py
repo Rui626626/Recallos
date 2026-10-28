@@ -602,12 +602,12 @@ class TestCacheDirectoriesAreSkipped(unittest.TestCase):
         from brain.config import DEFAULT_EXCLUDES
         from brain.pipeline import _matches_any
 
-        for path in (r"C:/Users/x/Desktop/WXWork",
-                     r"C:/Users/x/Desktop/WXWork/cache/a.jpg",
-                     r"C:/Users/x/AppData/Local/Temp/a.md",
-                     r"C:/Users/x/WeChat Files/a.md"):
+        for path in (r"T:/samples/Desktop/WXWork",
+                     r"T:/samples/Desktop/WXWork/cache/a.jpg",
+                     r"T:/samples/AppData/Local/Temp/a.md",
+                     r"T:/samples/WeChat Files/a.md"):
             self.assertTrue(_matches_any(path, DEFAULT_EXCLUDES), f"应当跳过：{path}")
-        self.assertFalse(_matches_any(r"C:/Users/x/Documents/笔记.md", DEFAULT_EXCLUDES))
+        self.assertFalse(_matches_any(r"T:/samples/Documents/笔记.md", DEFAULT_EXCLUDES))
 
 
 if __name__ == "__main__":
