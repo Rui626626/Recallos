@@ -27,11 +27,26 @@ DEFAULT_EXTENSIONS = (
     ".pdf", ".html", ".htm", ".xhtml",
 )
 
+# 排除清单分两类，第二类是后来补的、也是最容易漏的一类：
+#
+#   1) 版本库 / 构建产物 / 虚拟环境 —— 里面没有「用户想找回的资料」
+#   2) **IM 与系统缓存** —— 实测用户的 Desktop 下一万多个图片、五千多个深层目录，
+#      几乎全在企业微信（WXWork）缓存里。`add Desktop` 会把它们当资料扫一遍，
+#      既慢又污染统计（「不支持格式」里一半是缓存图片）。
+#
+# 注意：这些目录里的文件**不读、不统计**，与「不支持的格式」是两回事——
+# 后者会报给用户看，前者只记一条日志 `cache_dirs_skipped`。
 DEFAULT_EXCLUDES = (
     "**/~$*", "**/.git/**", "**/.svn/**", "**/node_modules/**",
     "**/__pycache__/**", "**/.venv/**", "**/venv/**",
     "**/$RECYCLE.BIN/**", "**/System Volume Information/**",
     "**/.dsh-backup/**", "**/.trash/**",
+    # IM / 浏览器 / 系统缓存
+    "**/WXWork/**", "**/WeChat Files/**", "**/WeChat/**",
+    "**/AppData/**", "**/Temp/**", "**/tmp/**",
+    "**/.cache/**", "**/GPUCache/**", "**/Code Cache/**",
+    "**/CacheStorage/**", "**/.thumbnails/**",
+    "**/.pnpm-store/**", "**/.npm/**", "**/.gradle/**", "**/.m2/**",
 )
 
 

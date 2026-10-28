@@ -567,5 +567,48 @@ class TestCsvIngest(unittest.TestCase):
         self.assertIn(".csv", supported_extensions())
 
 
+class TestCacheDirectoriesAreSkipped(unittest.TestCase):
+    """IM / 系统缓存目录必须被剪掉，否则 `add Desktop` 会把几万张缓存图当资料扫。
+
+    实测用户桌面：一万多张图片、五千多个深层目录，几乎全在企业微信（WXWork）缓存里。
+    扫它们的代价是「很慢」，收益是零——而且会把「不支持格式」的统计污染成噪音。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="recallos-p1-cache-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.root = os.path.join(self.tmp, "data-root")
+        self.src = os.path.join(self.tmp, "Desktop")
+        cache = os.path.join(self.src, "WXWork", "cache")
+        os.makedirs(cache, exist_ok=True)
+        # 缓存里放一份「看起来该命中」的文件：它必须搜不到
+        with open(os.path.join(cache, "藏在缓存里的笔记.md"), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write("# 缓存里的机密内容\n")
+        with open(os.path.join(self.src, "真正资料.md"), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write("# 真正的资料\n")
+
+    def test_files_under_a_cache_directory_are_not_indexed(self):
+        run_cli(self.root, "add", self.src)
+        self.assertEqual(cli_json(self.root, "search", "缓存里的机密内容",
+                                  expect=None)["hits"], [],
+                         "缓存目录里的文件不该被索引")
+        self.assertTrue(cli_json(self.root, "search", "真正的资料")["hits"],
+                        "缓存目录外的文件必须正常入库")
+
+    def test_the_exclude_patterns_really_match_cache_paths(self):
+        """直接量一下 glob，而不是相信「写了就等于生效」——这类静默失效最难发现。"""
+        from brain.config import DEFAULT_EXCLUDES
+        from brain.pipeline import _matches_any
+
+        for path in (r"C:/Users/x/Desktop/WXWork",
+                     r"C:/Users/x/Desktop/WXWork/cache/a.jpg",
+                     r"C:/Users/x/AppData/Local/Temp/a.md",
+                     r"C:/Users/x/WeChat Files/a.md"):
+            self.assertTrue(_matches_any(path, DEFAULT_EXCLUDES), f"应当跳过：{path}")
+        self.assertFalse(_matches_any(r"C:/Users/x/Documents/笔记.md", DEFAULT_EXCLUDES))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -104,6 +104,15 @@ def _glob_to_re(pattern: str) -> re.Pattern:
     """Glob where `**` crosses separators and `*` does not."""
     p = pattern.replace("\\", "/")
     out = ["^"]
+    # 开头的 `**/` 必须是**可选**前缀。
+    #
+    # 踩过：`**/WXWork/**` 编译成 `^.*/WXWork/.*$`，要求前面至少有一个字符。
+    # 排除规则现在按「相对目标目录」匹配，路径可能就以 `WXWork/` 开头 —— 于是
+    # 这条规则在相对路径下**静默失效**，缓存目录照样被扫。写成 `(?:.*/)?` 之后，
+    # 绝对路径与相对路径都能命中。
+    if p.startswith("**/"):
+        out.append("(?:.*/)?")
+        p = p[3:]
     i = 0
     while i < len(p):
         ch = p[i]
@@ -135,6 +144,12 @@ def _matches_any(path: str, patterns: Sequence[str]) -> bool:
     return False
 
 
+def _rel(dirpath: str, name: str, base: str) -> str:
+    """`(dirpath/name)` 相对 `base` 的 posix 路径，用于匹配排除规则。"""
+    rel = os.path.relpath(os.path.join(dirpath, name), base)
+    return rel.replace("\\", "/")
+
+
 def scan_files(cfg: Config, targets: Sequence[str],
                follow_symlinks: bool = False) -> Iterator[str]:
     """Yield absolute paths of indexable files under `targets`.
@@ -155,13 +170,19 @@ def scan_files(cfg: Config, targets: Sequence[str],
         if not os.path.isdir(ap):
             continue
         for dirpath, dirnames, filenames in os.walk(ap, followlinks=follow_symlinks):
+            # 排除规则只看**目标目录之下**的相对路径。
+            #
+            # 为什么不是绝对路径：用户显式点名 `add "D:\备份\AppData"` 时，绝对路径里
+            # 含 `AppData` 会被一刀切掉 —— 他亲手选的目录反而读不到，而且报「没找到」。
+            # 规则要剪的是「大目录里顺手带上的缓存」，不是「用户明确要的东西」。
+            # （测试套件自己就全在临时目录里，这个 bug 一改就立刻暴露。）
             dirnames[:] = [
                 d for d in dirnames
-                if not _matches_any(os.path.join(dirpath, d), cfg.excludes)
+                if not _matches_any(_rel(dirpath, d, ap), cfg.excludes)
             ]
             for name in filenames:
                 full = os.path.join(dirpath, name)
-                if _matches_any(full, cfg.excludes):
+                if _matches_any(_rel(dirpath, name, ap), cfg.excludes):
                     continue
                 if os.path.splitext(name)[1].lower() not in exts:
                     continue
